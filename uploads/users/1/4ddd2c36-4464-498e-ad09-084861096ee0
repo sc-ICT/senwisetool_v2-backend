@@ -1,0 +1,157 @@
+import {
+  Agent,
+  AssignFormPayload,
+  BulkReviewPayload,
+  CreateAgentsPayload,
+  FormRequest,
+  ReviewRequestPayload,
+  UpdateAgentPayload,
+} from "../types/agents.types";
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+// ─── Réponse normalisée ────────────────────────────────────────────────────────
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  /** Message lisible extrait de l'erreur backend */
+  errorMessage: string;
+}
+
+// ─── Extraction du message d'erreur backend (NestJS) ─────────────────────────
+
+function extractErrorMessage(body: unknown, fallback: string): string {
+  if (!body || typeof body !== "object") return fallback;
+  const b = body as Record<string, unknown>;
+  // NestJS renvoie souvent { message: string | string[] }
+  if (typeof b.message === "string" && b.message) return b.message;
+  if (Array.isArray(b.message) && b.message.length > 0) return String(b.message[0]);
+  if (typeof b.error === "string" && b.error) return b.error;
+  return fallback;
+}
+
+// ─── Fonction fetch de base ────────────────────────────────────────────────────
+
+async function request<T>(
+  path: string,
+  options?: RequestInit,
+  fallbackError = "Une erreur est survenue",
+): Promise<ApiResponse<T>> {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      ...options,
+    });
+
+    // Tenter de parser le JSON même en cas d'erreur HTTP
+    let json: unknown = null;
+    try {
+      json = await res.json();
+    } catch {
+      // Réponse vide (ex: 204 No Content) — c'est OK
+    }
+
+    if (!res.ok) {
+      return {
+        success: false,
+        errorMessage: extractErrorMessage(json, fallbackError),
+      };
+    }
+
+    // Normalisation : data peut être dans json.data ou à la racine
+    const jsonObj = json && typeof json === "object" ? (json as Record<string, unknown>) : {};
+    const data = (jsonObj.data ?? json) as T | undefined;
+
+    return {
+      success: true,
+      data,
+      message: typeof jsonObj.message === "string" ? jsonObj.message : undefined,
+      errorMessage: "",
+    };
+  } catch (err) {
+    // Erreur réseau (pas de connexion, timeout, CORS…)
+    const isNetworkError =
+      err instanceof TypeError && err.message.toLowerCase().includes("fetch");
+    return {
+      success: false,
+      errorMessage: isNetworkError
+        ? "Impossible de joindre le serveur. Vérifiez votre connexion."
+        : fallbackError,
+    };
+  }
+}
+
+// ─── API agents ───────────────────────────────────────────────────────────────
+
+export const agentApi = {
+  /** GET /agents */
+  getAll: () =>
+    request<Agent[]>("/agents", undefined, "Impossible de charger les agents"),
+
+  /** POST /agents */
+  create: (payload: CreateAgentsPayload) =>
+    request<Agent[]>(
+      "/agents",
+      { method: "POST", body: JSON.stringify(payload) },
+      "Erreur lors de la création des agents",
+    ),
+
+  /** PATCH /agents/:id */
+  update: (id: number, payload: UpdateAgentPayload) =>
+    request<Agent>(
+      `/agents/${id}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      "Erreur lors de la modification de l'agent",
+    ),
+
+  /** DELETE /agents */
+  deleteMany: (ids: number[]) =>
+    request<void>(
+      "/agents",
+      { method: "DELETE", body: JSON.stringify({ ids }) },
+      "Erreur lors de la suppression",
+    ),
+
+  /** GET /agents/requests */
+  getRequests: () =>
+    request<FormRequest[]>(
+      "/agents/requests",
+      undefined,
+      "Impossible de charger les demandes",
+    ),
+
+  /** POST /agents/:agentId/forms */
+  assignForm: (agentId: number, payload: AssignFormPayload) =>
+    request<void>(
+      `/agents/${agentId}/forms`,
+      { method: "POST", body: JSON.stringify(payload) },
+      "Erreur lors de l'assignation du formulaire",
+    ),
+
+  /** DELETE /agents/:agentId/forms/:agentFormId */
+  removeForm: (agentId: number, agentFormId: string) =>
+    request<void>(
+      `/agents/${agentId}/forms/${agentFormId}`,
+      { method: "DELETE" },
+      "Erreur lors du retrait du formulaire",
+    ),
+
+  /** PATCH /agents/requests/:requestId */
+  reviewRequest: (requestId: string, payload: ReviewRequestPayload) =>
+    request<void>(
+      `/agents/requests/${requestId}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+      "Erreur lors du traitement de la demande",
+    ),
+
+  /** PATCH /agents/requests/bulk */
+  bulkReviewRequests: (payload: BulkReviewPayload) =>
+    request<void>(
+      "/agents/requests/bulk",
+      { method: "PATCH", body: JSON.stringify(payload) },
+      "Erreur lors du traitement groupé",
+    ),
+};

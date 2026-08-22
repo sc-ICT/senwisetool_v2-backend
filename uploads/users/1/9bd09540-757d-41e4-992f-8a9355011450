@@ -1,0 +1,86 @@
+import {
+  Agent,
+  AssignFormPayload,
+  BulkReviewPayload,
+  CreateAgentsPayload,
+  FormRequest,
+  ReviewRequestPayload,
+  UpdateAgentPayload,
+} from "../types/agents.types";
+
+// Remplace par l'URL de ton backend NestJS
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+async function request<T>(
+  path: string,
+  options?: RequestInit,
+): Promise<{ success: boolean; data?: T; message?: string; error?: unknown }> {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      ...options,
+    });
+    const json = await res.json();
+    if (!res.ok) return { success: false, error: json };
+    return { success: true, data: json.data ?? json, message: json.message };
+  } catch (err) {
+    return { success: false, error: err };
+  }
+}
+
+export const agentApi = {
+  /** GET /agents — liste de tous les agents avec leurs formulaires assignés */
+  getAll: () => request<Agent[]>("/agents"),
+
+  /** POST /agents — créer un ou plusieurs agents */
+  create: (payload: CreateAgentsPayload) =>
+    request<Agent[]>("/agents", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  /** PATCH /agents/:id — modifier un agent */
+  update: (id: number, payload: UpdateAgentPayload) =>
+    request<Agent>(`/agents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  /** DELETE /agents — supprimer un ou plusieurs agents */
+  deleteMany: (ids: number[]) =>
+    request<void>("/agents", {
+      method: "DELETE",
+      body: JSON.stringify({ ids }),
+    }),
+
+  /** GET /agents/requests — demandes de formulaires en attente */
+  getRequests: () => request<FormRequest[]>("/agents/requests"),
+
+  /** POST /agents/:agentId/forms — assigner un formulaire à un agent */
+  assignForm: (agentId: number, payload: AssignFormPayload) =>
+    request<void>(`/agents/${agentId}/forms`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  /** DELETE /agents/:agentId/forms/:agentFormId — retirer un formulaire */
+  removeForm: (agentId: number, agentFormId: string) =>
+    request<void>(`/agents/${agentId}/forms/${agentFormId}`, {
+      method: "DELETE",
+    }),
+
+  /** PATCH /agents/requests/:requestId — accepter ou rejeter une demande */
+  reviewRequest: (requestId: string, payload: ReviewRequestPayload) =>
+    request<void>(`/agents/requests/${requestId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  /** PATCH /agents/requests/bulk — accepter ou rejeter plusieurs demandes */
+  bulkReviewRequests: (payload: BulkReviewPayload) =>
+    request<void>("/agents/requests/bulk", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+};

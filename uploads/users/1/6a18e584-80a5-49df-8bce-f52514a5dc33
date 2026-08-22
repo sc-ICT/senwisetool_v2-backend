@@ -1,0 +1,89 @@
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+export type AgentStatus = "ACTIVE" | "INACTIVE";
+
+export type AgentFormStatus =
+  | "PENDING_APPROVAL"
+  | "PENDING_DOWNLOAD"
+  | "DOWNLOADED";
+
+// ─── Entities ─────────────────────────────────────────────────────────────────
+
+export interface AssignedForm {
+  /** id de AgentForm en base */
+  id: string;
+  /** id du formulaire */
+  formId: string;
+  code: string;
+  name: string;
+  status: AgentFormStatus;
+  /** true si status === DOWNLOADED */
+  downloaded: boolean;
+  /** nombre de FormSubmission soumises pour ce formulaire */
+  surveyCount: number;
+}
+
+export interface Agent {
+  id: number;
+  agentName: string;
+  token: string;
+  userId: number;
+  status: AgentStatus;
+  createdAt: string;
+  forms: AssignedForm[];
+}
+
+export interface FormRequest {
+  id: string;
+  agentId: number;
+  agentName: string;
+  /** id du formulaire demandé */
+  formId: string;
+  formCode: string;
+  formName: string;
+  requestedAt: string;
+}
+
+// ─── API payloads ─────────────────────────────────────────────────────────────
+
+export interface CreateAgentsPayload {
+  agentNames: string[];
+}
+
+export interface UpdateAgentPayload {
+  agentName?: string;
+  status?: AgentStatus;
+}
+
+export interface AssignFormPayload {
+  formId: string;
+}
+
+export interface ReviewRequestPayload {
+  action: "ACCEPT" | "REJECT";
+}
+
+export interface BulkReviewPayload {
+  requestIds: string[];
+  action: "ACCEPT" | "REJECT";
+}
+
+// ─── View props ───────────────────────────────────────────────────────────────
+
+export interface AgentViewProps {
+  agents: Agent[];
+  requests: FormRequest[];
+  isLoading: boolean;
+  isLoadingAgents: boolean;
+  isLoadingRequests: boolean;
+  // Agents
+  onCreateAgents: (payload: CreateAgentsPayload) => Promise<void>;
+  onUpdateAgent: (id: number, payload: UpdateAgentPayload) => Promise<void>;
+  onDeleteAgents: (ids: number[]) => Promise<void>;
+  // Forms
+  onAssignForm: (agentId: number, payload: AssignFormPayload) => Promise<void>;
+  onRemoveForm: (agentId: number, agentFormId: string) => Promise<void>;
+  // Requests
+  onReviewRequest: (requestId: string, action: "ACCEPT" | "REJECT") => Promise<void>;
+  onBulkReviewRequests: (payload: BulkReviewPayload) => Promise<void>;
+}

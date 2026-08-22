@@ -1,0 +1,225 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "react-toastify";
+import { agentApi } from "./types/agents.api";
+import {
+  Agent,
+  AssignFormPayload,
+  BulkReviewPayload,
+  CreateAgentsPayload,
+  FormRequest,
+  UpdateAgentPayload,
+} from "./types/agents.types";
+import { AgentsView } from "./agents.view";
+
+export const AgentsController = () => {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [requests, setRequests] = useState<FormRequest[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingAgents, setIsLoadingAgents] = useState(true);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+
+  // ── Chargement initial ─────────────────────────────────────────────────────
+
+  const fetchAgents = useCallback(async () => {
+    setIsLoadingAgents(true);
+    const res = await agentApi.getAll();
+    if (res.success && res.data) setAgents(res.data);
+    else toast.error("Impossible de charger les agents");
+    setIsLoadingAgents(false);
+  }, []);
+
+  const fetchRequests = useCallback(async () => {
+    setIsLoadingRequests(true);
+    const res = await agentApi.getRequests();
+    if (res.success && res.data) setRequests(res.data);
+    else toast.error("Impossible de charger les demandes");
+    setIsLoadingRequests(false);
+  }, []);
+
+  useEffect(() => {
+    fetchAgents();
+    fetchRequests();
+  }, [fetchAgents, fetchRequests]);
+
+  // ── Agents CRUD ────────────────────────────────────────────────────────────
+
+  const onCreateAgents = async (payload: CreateAgentsPayload) => {
+    setIsLoading(true);
+    try {
+      const res = await agentApi.create(payload);
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors de la création");
+        return;
+      }
+      toast.success(
+        payload.agentNames.length > 1
+          ? `${payload.agentNames.length} agents créés avec succès`
+          : "Agent créé avec succès",
+      );
+      await fetchAgents();
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onUpdateAgent = async (id: number, payload: UpdateAgentPayload) => {
+    setIsLoading(true);
+    try {
+      const res = await agentApi.update(id, payload);
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors de la modification");
+        return;
+      }
+      toast.success("Agent modifié avec succès");
+      // Mise à jour optimiste locale
+      setAgents((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, ...payload } : a)),
+      );
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onDeleteAgents = async (ids: number[]) => {
+    setIsLoading(true);
+    try {
+      const res = await agentApi.deleteMany(ids);
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors de la suppression");
+        return;
+      }
+      toast.success(
+        ids.length > 1
+          ? `${ids.length} agents supprimés`
+          : "Agent supprimé avec succès",
+      );
+      // Mise à jour optimiste locale
+      setAgents((prev) => prev.filter((a) => !ids.includes(a.id)));
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Formulaires ────────────────────────────────────────────────────────────
+
+  const onAssignForm = async (agentId: number, payload: AssignFormPayload) => {
+    setIsLoading(true);
+    try {
+      const res = await agentApi.assignForm(agentId, payload);
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors de l'assignation");
+        return;
+      }
+      toast.success("Formulaire assigné avec succès");
+      // Recharger les agents pour avoir les données à jour (formId → code/name)
+      await fetchAgents();
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onRemoveForm = async (agentId: number, agentFormId: string) => {
+    setIsLoading(true);
+    try {
+      const res = await agentApi.removeForm(agentId, agentFormId);
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors du retrait");
+        return;
+      }
+      toast.success("Formulaire retiré");
+      // Mise à jour optimiste locale
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agentId
+            ? { ...a, forms: a.forms.filter((f) => f.id !== agentFormId) }
+            : a,
+        ),
+      );
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Demandes d'accès ───────────────────────────────────────────────────────
+
+  const onReviewRequest = async (
+    requestId: string,
+    action: "ACCEPT" | "REJECT",
+  ) => {
+    try {
+      const res = await agentApi.reviewRequest(requestId, { action });
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors du traitement");
+        return;
+      }
+      toast.success(action === "ACCEPT" ? "Demande acceptée" : "Demande rejetée");
+      // Retrait optimiste de la demande
+      setRequests((prev) => prev.filter((r) => r.id !== requestId));
+      // Si acceptée, recharger les agents pour avoir le formulaire ajouté
+      if (action === "ACCEPT") await fetchAgents();
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    }
+  };
+
+  const onBulkReviewRequests = async (payload: BulkReviewPayload) => {
+    setIsLoading(true);
+    try {
+      const res = await agentApi.bulkReviewRequests(payload);
+      if (!res.success) {
+        toast.error((res.error as Error)?.message ?? "Erreur lors du traitement groupé");
+        return;
+      }
+      const count = payload.requestIds.length;
+      toast.success(
+        payload.action === "ACCEPT"
+          ? `${count} demande${count > 1 ? "s" : ""} acceptée${count > 1 ? "s" : ""}`
+          : `${count} demande${count > 1 ? "s" : ""} rejetée${count > 1 ? "s" : ""}`,
+      );
+      setRequests((prev) =>
+        prev.filter((r) => !payload.requestIds.includes(r.id)),
+      );
+      if (payload.action === "ACCEPT") await fetchAgents();
+    } catch (err) {
+      toast.error("Erreur inattendue");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <AgentsView
+      agents={agents}
+      requests={requests}
+      isLoading={isLoading}
+      isLoadingAgents={isLoadingAgents}
+      isLoadingRequests={isLoadingRequests}
+      onCreateAgents={onCreateAgents}
+      onUpdateAgent={onUpdateAgent}
+      onDeleteAgents={onDeleteAgents}
+      onAssignForm={onAssignForm}
+      onRemoveForm={onRemoveForm}
+      onReviewRequest={onReviewRequest}
+      onBulkReviewRequests={onBulkReviewRequests}
+    />
+  );
+};

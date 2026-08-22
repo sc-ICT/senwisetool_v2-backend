@@ -1,0 +1,165 @@
+import { AgentFormStatus, AgentStatus, AssignedForm } from "../types/agents.types";
+import { AVATAR_COLORS, initials } from "./agents.constants";
+import {
+  FaArrowDown,
+  FaArrowUp,
+  FaArrowsUpDown,
+  FaCheck,
+  FaClock,
+  FaDownload,
+} from "react-icons/fa6";
+
+// ─── Avatar ───────────────────────────────────────────────────────────────────
+
+export function Avatar({
+  name,
+  id,
+  size = "md",
+}: {
+  name: string;
+  id: number;
+  size?: "sm" | "md" | "lg";
+}) {
+  const cls = AVATAR_COLORS[id % AVATAR_COLORS.length];
+  const sizeCls = { sm: "w-7 h-7 text-[10px]", md: "w-9 h-9 text-xs", lg: "w-11 h-11 text-sm" }[size];
+  return (
+    <div className={`${sizeCls} ${cls} rounded-full flex items-center justify-center font-semibold shrink-0`}>
+      {initials(name)}
+    </div>
+  );
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────────
+
+export function StatusBadge({ status }: { status: AgentStatus }) {
+  return status === "ACTIVE" ? (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      Actif
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-500/10 text-zinc-500 border border-zinc-700">
+      <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+      Inactif
+    </span>
+  );
+}
+
+// ─── AgentForm status badge ───────────────────────────────────────────────────
+
+export function FormStatusBadge({ status }: { status: AgentFormStatus }) {
+  const map: Record<AgentFormStatus, { label: string; cls: string; icon: React.ReactNode }> = {
+    DOWNLOADED: {
+      label: "Téléchargé",
+      cls: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
+      icon: <FaDownload className="w-2.5 h-2.5" />,
+    },
+    PENDING_DOWNLOAD: {
+      label: "En attente DL",
+      cls: "bg-blue-500/10 text-blue-300 border-blue-500/20",
+      icon: <FaClock className="w-2.5 h-2.5" />,
+    },
+    PENDING_APPROVAL: {
+      label: "En attente approbation",
+      cls: "bg-amber-500/10 text-amber-300 border-amber-500/20",
+      icon: <FaClock className="w-2.5 h-2.5" />,
+    },
+  };
+  const { label, cls, icon } = map[status];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+      {icon}
+      {label}
+    </span>
+  );
+}
+
+// ─── Form tag (dans la table) ─────────────────────────────────────────────────
+
+export function FormTag({ form }: { form: AssignedForm }) {
+  const dotCls =
+    form.status === "DOWNLOADED"
+      ? "bg-emerald-400"
+      : form.status === "PENDING_DOWNLOAD"
+        ? "bg-blue-400"
+        : "bg-amber-400";
+
+  const tooltip = form.downloaded
+    ? `${form.name} · ${form.surveyCount} enquête(s) soumise(s)`
+    : `${form.name} · ${form.status === "PENDING_APPROVAL" ? "En attente d'approbation" : "En attente de téléchargement"}`;
+
+  return (
+    <span
+      title={tooltip}
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-[#0d1b35] border border-white/10 rounded-full text-xs text-zinc-400 hover:border-white/20 transition-colors"
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
+      <span className="font-mono">{form.code}</span>
+      {form.downloaded && (
+        <span className="flex items-center gap-0.5 text-[10px] text-zinc-500">
+          <FaCheck className="w-2 h-2 text-emerald-500" />
+          {form.surveyCount}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// ─── Sort icon ────────────────────────────────────────────────────────────────
+
+export function SortIcon({
+  active,
+  dir,
+}: {
+  active: boolean;
+  dir: 1 | -1;
+}) {
+  if (!active) return <FaArrowsUpDown className="w-2.5 h-2.5 ml-1 text-zinc-700 inline" />;
+  return dir === 1
+    ? <FaArrowUp className="w-2.5 h-2.5 ml-1 text-blue-400 inline" />
+    : <FaArrowDown className="w-2.5 h-2.5 ml-1 text-blue-400 inline" />;
+}
+
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+
+export function TableSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, i) => (
+        <tr key={i} className="border-b border-white/5">
+          <td className="px-4 py-3"><div className="w-3.5 h-3.5 rounded bg-white/5 animate-pulse" /></td>
+          <td className="px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-white/5 animate-pulse shrink-0" />
+              <div className="space-y-1.5">
+                <div className="w-28 h-3 rounded bg-white/5 animate-pulse" />
+                <div className="w-16 h-2.5 rounded bg-white/5 animate-pulse" />
+              </div>
+            </div>
+          </td>
+          <td className="px-4 py-3"><div className="w-14 h-5 rounded-full bg-white/5 animate-pulse" /></td>
+          <td className="px-4 py-3"><div className="w-20 h-3 rounded bg-white/5 animate-pulse" /></td>
+          <td className="px-4 py-3"><div className="w-32 h-5 rounded-full bg-white/5 animate-pulse" /></td>
+          <td className="px-4 py-3"><div className="w-16 h-3 rounded bg-white/5 animate-pulse" /></td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
+
+export function EmptyState({ message }: { message: string }) {
+  return (
+    <tr>
+      <td colSpan={6} className="px-4 py-16 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-white/3 border border-white/8 flex items-center justify-center">
+            <span className="text-xl">👤</span>
+          </div>
+          <p className="text-sm text-zinc-500">{message}</p>
+        </div>
+      </td>
+    </tr>
+  );
+}

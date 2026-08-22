@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator
+from pathlib import Path
+
+from fastapi import Cookie, Depends, HTTPException, status
+from fastapi.security import HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.database import AsyncSessionLocal, get_db
+from app.models.user import User
+from app.services.archive import ArchiveService
+from app.services.file_system import FileSystemService
+from app.services.form_builder.question_bank import (
+    QuestionBankService,
+)
+from app.services.form_builder.question_group import QuestionGroupService
+from app.services.storage.local import LocalStorageService
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Session DB par requête."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def get_current_user(
+    db: AsyncSession = Depends(get_db),
+    access_token: str | None = Cookie(default=None),
+) -> User:
+    """
+    Lit le token depuis le cookie 'access_token'.
+    Protège tous les endpoints qui en dépendent.
+    """
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Non authentifié",
+        )
+
+    try:
+        payload = jwt.decode(
+            access_token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
+        user_id: str | None = payload.get("sub")
+        token_type: str | None = payload.get("type")
+
+        if user_id is None or token_type != "access":
+            raise HTTPException(status_code=401, detail="Token invalide")
+
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token invalide ou expiré")
+
+    result = await db.execute(select(User).where(User.id == int(user_id)))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+
+    if not user.email_verified:
+        raise HTTPException(status_code=403, detail="Vérifiez votre adresse e-mail")
+
+    if user.status.value != "ACTIVE":
+        raise HTTPException(status_code=403, detail="Compte inactif ou suspendu")
+
+    return user
+
+
+CurrentUser = Depends(get_current_user)
+
+
+mobile_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def get_file_storage() -> LocalStorageService:
+    return LocalStorageService(
+        Path(settings.UPLOAD_DIR),
+    )
+
+
+def get_file_system_service(
+    session: AsyncSession = Depends(get_db),
+    storage: LocalStorageService = Depends(get_file_storage),
+) -> FileSystemService:
+    return FileSystemService(
+        session=session,
+        storage=storage,
+    )
+
+
+def get_archive_service(
+    storage: LocalStorageService = Depends(
+        get_file_storage,
+    ),
+) -> ArchiveService:
+    return ArchiveService(
+        storage=storage,
+    )
+
+
+def get_question_bank_service(
+    session: AsyncSession = Depends(get_db),
+) -> QuestionBankService:
+    return QuestionBankService(
+        session=session,
+    )
+
+
+def get_question_group_service(
+    session: AsyncSession = Depends(get_db),
+) -> QuestionGroupService:
+    return QuestionGroupService(
+        session=session,
+    )
+
+
+# async def get_current_agent(
+#     db: AsyncSession = Depends(get_db),
+#     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+# ) -> UserMobile:
+#     """
+#     Guard pour les endpoints mobiles.
+#     Lit le token depuis le header Authorization: Bearer <token>
+#     """
+#     if not credentials:
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Token manquant",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+
+#     try:
+#         payload = jwt.decode(
+#             credentials.credentials,
+#             settings.SECRET_KEY,
+#             algorithms=[settings.ALGORITHM],
+#         )
+#         agent_id: str | None = payload.get("sub")
+#         token_type: str | None = payload.get("type")
+
+#         if agent_id is None or token_type != "mobile":
+#             raise HTTPException(status_code=401, detail="Token invalide")
+
+#     except JWTError:
+#         raise HTTPException(status_code=401, detail="Token invalide ou expiré")
+
+#     result = await db.execute(select(UserMobile).where(UserMobile.id == int(agent_id)))
+#     agent = result.scalar_one_or_none()
+
+#     if not agent:
+#         raise HTTPException(status_code=401, detail="Agent introuvable")
+
+#     if agent.status.value != "ACTIVE":
+#         raise HTTPException(status_code=403, detail="Compte agent inactif")
+
+#     return agent
+
+
+# CurrentAgent = Depends(get_current_agent)

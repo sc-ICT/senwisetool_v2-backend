@@ -1,0 +1,222 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "react-toastify";
+import { agentApi } from "./types/agents.api";
+import {
+  Agent,
+  AssignFormPayload,
+  BulkReviewPayload,
+  CreateAgentsPayload,
+  FormRequest,
+  UpdateAgentPayload,
+} from "./types/agents.types";
+import { AgentsView } from "./agents.view";
+
+// ─── États de chargement distincts ────────────────────────────────────────────
+
+interface FetchState {
+  loading: boolean;
+  hasError: boolean;
+  errorMessage: string;
+}
+
+const IDLE: FetchState = { loading: false, hasError: false, errorMessage: "" };
+const LOADING: FetchState = { loading: true, hasError: false, errorMessage: "" };
+const error = (msg: string): FetchState => ({
+  loading: false,
+  hasError: true,
+  errorMessage: msg,
+});
+
+export const AgentsController = () => {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [requests, setRequests] = useState<FormRequest[]>([]);
+
+  const [agentsFetch, setAgentsFetch] = useState<FetchState>(LOADING);
+  const [requestsFetch, setRequestsFetch] = useState<FetchState>(LOADING);
+  // isLoading global = mutation en cours (create, update, delete…)
+  const [isLoading, setIsLoading] = useState(false);
+
+  // ── Chargements initiaux ───────────────────────────────────────────────────
+
+  const fetchAgents = useCallback(async () => {
+    setAgentsFetch(LOADING);
+    const res = await agentApi.getAll();
+    if (res.success) {
+      // L'API peut renvoyer null/undefined même en succès → tableau vide
+      setAgents(Array.isArray(res.data) ? res.data : []);
+      setAgentsFetch(IDLE);
+    } else {
+      setAgentsFetch(error(res.errorMessage));
+      toast.error(res.errorMessage);
+    }
+  }, []);
+
+  const fetchRequests = useCallback(async () => {
+    setRequestsFetch(LOADING);
+    const res = await agentApi.getRequests();
+    if (res.success) {
+      setRequests(Array.isArray(res.data) ? res.data : []);
+      setRequestsFetch(IDLE);
+    } else {
+      // Les demandes ne sont pas bloquantes — on affiche juste un avertissement
+      setRequestsFetch(error(res.errorMessage));
+      toast.warn("Impossible de charger les demandes d'accès");
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAgents();
+    fetchRequests();
+  }, [fetchAgents, fetchRequests]);
+
+  // ── Agents CRUD ────────────────────────────────────────────────────────────
+
+  const onCreateAgents = async (payload: CreateAgentsPayload) => {
+    if (!payload.agentNames?.length) return;
+    setIsLoading(true);
+    const res = await agentApi.create(payload);
+    setIsLoading(false);
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    toast.success(
+      payload.agentNames.length > 1
+        ? `${payload.agentNames.length} agents créés avec succès`
+        : "Agent créé avec succès",
+    );
+    await fetchAgents();
+  };
+
+  const onUpdateAgent = async (id: number, payload: UpdateAgentPayload) => {
+    setIsLoading(true);
+    const res = await agentApi.update(id, payload);
+    setIsLoading(false);
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    toast.success("Agent modifié avec succès");
+    // Mise à jour optimiste — évite un rechargement complet
+    setAgents((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, ...payload } : a)),
+    );
+  };
+
+  const onDeleteAgents = async (ids: number[]) => {
+    if (!ids.length) return;
+    setIsLoading(true);
+    const res = await agentApi.deleteMany(ids);
+    setIsLoading(false);
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    toast.success(
+      ids.length > 1 ? `${ids.length} agents supprimés` : "Agent supprimé",
+    );
+    setAgents((prev) => prev.filter((a) => !ids.includes(a.id)));
+  };
+
+  // ── Formulaires ────────────────────────────────────────────────────────────
+
+  const onAssignForm = async (agentId: number, payload: AssignFormPayload) => {
+    if (!payload.formId?.trim()) {
+      toast.warn("Veuillez saisir un identifiant de formulaire");
+      return;
+    }
+    setIsLoading(true);
+    const res = await agentApi.assignForm(agentId, payload);
+    setIsLoading(false);
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    toast.success("Formulaire assigné avec succès");
+    // Recharger pour récupérer code + nom depuis le backend
+    await fetchAgents();
+  };
+
+  const onRemoveForm = async (agentId: number, agentFormId: string) => {
+    setIsLoading(true);
+    const res = await agentApi.removeForm(agentId, agentFormId);
+    setIsLoading(false);
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    toast.success("Formulaire retiré");
+    // Mise à jour optimiste
+    setAgents((prev) =>
+      prev.map((a) =>
+        a.id === agentId
+          ? { ...a, forms: a.forms.filter((f) => f.id !== agentFormId) }
+          : a,
+      ),
+    );
+  };
+
+  // ── Demandes d'accès ───────────────────────────────────────────────────────
+
+  const onReviewRequest = async (
+    requestId: string,
+    action: "ACCEPT" | "REJECT",
+  ) => {
+    const res = await agentApi.reviewRequest(requestId, { action });
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    toast.success(action === "ACCEPT" ? "Demande acceptée" : "Demande rejetée");
+    setRequests((prev) => prev.filter((r) => r.id !== requestId));
+    if (action === "ACCEPT") await fetchAgents();
+  };
+
+  const onBulkReviewRequests = async (payload: BulkReviewPayload) => {
+    if (!payload.requestIds?.length) return;
+    setIsLoading(true);
+    const res = await agentApi.bulkReviewRequests(payload);
+    setIsLoading(false);
+
+    if (!res.success) {
+      toast.error(res.errorMessage);
+      return;
+    }
+    const count = payload.requestIds.length;
+    toast.success(
+      payload.action === "ACCEPT"
+        ? `${count} demande${count > 1 ? "s" : ""} acceptée${count > 1 ? "s" : ""}`
+        : `${count} demande${count > 1 ? "s" : ""} rejetée${count > 1 ? "s" : ""}`,
+    );
+    setRequests((prev) =>
+      prev.filter((r) => !payload.requestIds.includes(r.id)),
+    );
+    if (payload.action === "ACCEPT") await fetchAgents();
+  };
+
+  return (
+    <AgentsView
+      agents={agents}
+      requests={requests}
+      isLoading={isLoading}
+      agentsFetch={agentsFetch}
+      requestsFetch={requestsFetch}
+      onRetryAgents={fetchAgents}
+      onCreateAgents={onCreateAgents}
+      onUpdateAgent={onUpdateAgent}
+      onDeleteAgents={onDeleteAgents}
+      onAssignForm={onAssignForm}
+      onRemoveForm={onRemoveForm}
+      onReviewRequest={onReviewRequest}
+      onBulkReviewRequests={onBulkReviewRequests}
+    />
+  );
+};

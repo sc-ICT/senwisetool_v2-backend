@@ -1,0 +1,267 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { Agent, AgentStatus, AgentViewProps } from "./types/agents.types";
+import { PER_PAGE } from "./components/agents.constants";
+import { AgentStats } from "./components/agents.stats";
+import { PendingRequestsPanel } from "./components/agents.requests-panel";
+import { AgentToolbar } from "./components/agents.toolbar";
+import { AgentsTable } from "./components/agents.table";
+import { Pagination } from "./components/agents.pagination";
+import { AgentModal } from "./modals/agent-create-edit.modal";
+import { FormsModal } from "./modals/agent-forms.modal";
+import { DeleteModal } from "./modals/agent-delete.modal";
+import { DashLayout } from "@/ui/components/layout/dashLayout";
+import { FaUserPlus } from "react-icons/fa6";
+
+export const AgentsView = ({
+  agents,
+  requests,
+  isLoading,
+  isLoadingAgents,
+  isLoadingRequests,
+  onCreateAgents,
+  onUpdateAgent,
+  onDeleteAgents,
+  onAssignForm,
+  onRemoveForm,
+  onReviewRequest,
+  onBulkReviewRequests,
+}: AgentViewProps) => {
+  // ── UI state ───────────────────────────────────────────────────────────────
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | AgentStatus>("");
+  const [sortBy, setSortBy] = useState<"name" | "date" | "forms">("name");
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  // Modals
+  const [agentModal, setAgentModal] = useState<{
+    open: boolean;
+    agent: Partial<Agent> | null;
+  }>({ open: false, agent: null });
+
+  const [formsModal, setFormsModal] = useState<{
+    open: boolean;
+    agentId: number | null;
+  }>({ open: false, agentId: null });
+
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    ids: number[];
+    message: string;
+  }>({ open: false, ids: [], message: "" });
+
+  // ── Filtering & sorting ────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return agents
+      .filter((a) => {
+        const matchQ =
+          !q ||
+          a.agentName.toLowerCase().includes(q) ||
+          a.token?.toLowerCase().includes(q) ||
+          a.forms.some(
+            (f) =>
+              f.code.toLowerCase().includes(q) ||
+              f.name.toLowerCase().includes(q),
+          );
+        return matchQ && (!statusFilter || a.status === statusFilter);
+      })
+      .sort((a, b) => {
+        if (sortBy === "date")
+          return sortDir * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        if (sortBy === "forms")
+          return sortDir * (b.forms.length - a.forms.length);
+        return sortDir * a.agentName.localeCompare(b.agentName);
+      });
+  }, [agents, search, statusFilter, sortBy, sortDir]);
+
+  const totalPages = Math.ceil(filtered.length / PER_PAGE) || 1;
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  // ── Sort ───────────────────────────────────────────────────────────────────
+  const handleSort = (col: "name" | "date" | "forms") => {
+    if (sortBy === col) setSortDir((d) => (d === 1 ? -1 : 1));
+    else { setSortBy(col); setSortDir(1); }
+    setPage(1);
+  };
+
+  // ── Selection ──────────────────────────────────────────────────────────────
+  const toggleSelect = (id: number) =>
+    setSelected((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const toggleAll = (checked: boolean) =>
+    setSelected(checked ? new Set(paginated.map((a) => a.id)) : new Set());
+
+  const clearSelection = () => setSelected(new Set());
+
+  // ── Agent CRUD ─────────────────────────────────────────────────────────────
+  const handleSaveAgent = async (data: { agentNames: string[] }) => {
+    if (agentModal.agent?.id) {
+      await onUpdateAgent(agentModal.agent.id, { agentName: data.agentNames[0] });
+    } else {
+      await onCreateAgents({ agentNames: data.agentNames });
+    }
+    setAgentModal({ open: false, agent: null });
+  };
+
+  const openDelete = (ids: number[]) => {
+    const names = agents.filter((a) => ids.includes(a.id)).map((a) => a.agentName);
+    setDeleteModal({
+      open: true,
+      ids,
+      message:
+        ids.length === 1
+          ? `Supprimer l'agent "${names[0]}" ? Cette action est irréversible.`
+          : `Supprimer les ${ids.length} agents sélectionnés ? Cette action est irréversible.`,
+    });
+  };
+
+  const confirmDelete = async () => {
+    await onDeleteAgents(deleteModal.ids);
+    setSelected((prev) => {
+      const n = new Set(prev);
+      deleteModal.ids.forEach((id) => n.delete(id));
+      return n;
+    });
+    setDeleteModal({ open: false, ids: [], message: "" });
+  };
+
+  // ── Forms ──────────────────────────────────────────────────────────────────
+  const formsAgent = agents.find((a) => a.id === formsModal.agentId) ?? null;
+
+  const handleAssignForm = async (formId: string) => {
+    if (!formsModal.agentId) return;
+    await onAssignForm(formsModal.agentId, { formId });
+  };
+
+  const handleRemoveForm = async (agentFormId: string) => {
+    if (!formsModal.agentId) return;
+    await onRemoveForm(formsModal.agentId, agentFormId);
+  };
+
+  // ── Requests ───────────────────────────────────────────────────────────────
+  const bulkAcceptSelectedAgents = async () => {
+    const targetIds = requests
+      .filter((r) => selected.has(r.agentId))
+      .map((r) => r.id);
+    if (targetIds.length > 0) {
+      await onBulkReviewRequests({ requestIds: targetIds, action: "ACCEPT" });
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <DashLayout className="min-h-screen text-zinc-100 p-6">
+      <div className="max-w-7xl mx-auto">
+
+        {/* ── Page header ── */}
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">
+              Agents
+            </h1>
+            <p className="text-sm text-zinc-600 mt-0.5">
+              Gérez vos agents terrain et leurs formulaires assignés
+            </p>
+          </div>
+          <button
+            onClick={() => setAgentModal({ open: true, agent: {} })}
+            className="h-9 px-4 text-sm rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-500 transition-colors flex items-center gap-2 shadow-lg shadow-blue-900/30"
+          >
+            <FaUserPlus className="w-3.5 h-3.5" />
+            Ajouter un agent
+          </button>
+        </div>
+
+        {/* ── Stats ── */}
+        <AgentStats agents={agents} requests={requests} />
+
+        {/* ── Demandes en attente (redesigné) ── */}
+        {!isLoadingRequests && (
+          <PendingRequestsPanel
+            requests={requests}
+            onReview={onReviewRequest}
+            onBulkReview={(ids, action) =>
+              onBulkReviewRequests({ requestIds: ids, action })
+            }
+            isLoading={isLoading}
+          />
+        )}
+
+        {/* ── Toolbar ── */}
+        <AgentToolbar
+          search={search}
+          onSearch={(v) => { setSearch(v); setPage(1); }}
+          statusFilter={statusFilter}
+          onStatusFilter={(v) => { setStatusFilter(v); setPage(1); }}
+          sortBy={sortBy}
+          onSort={(v) => { setSortBy(v); setPage(1); }}
+          selectedCount={selected.size}
+          onBulkAccept={bulkAcceptSelectedAgents}
+          onBulkDelete={() => openDelete([...selected])}
+          onClearSelection={clearSelection}
+        />
+
+        {/* ── Table ── */}
+        <AgentsTable
+          agents={paginated}
+          isLoading={isLoadingAgents}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+          onToggleAll={toggleAll}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={handleSort}
+          onEdit={(agent) => setAgentModal({ open: true, agent })}
+          onDelete={openDelete}
+          onManageForms={(id) => setFormsModal({ open: true, agentId: id })}
+        />
+
+        {/* ── Pagination ── */}
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={filtered.length}
+          perPage={PER_PAGE}
+          onPage={setPage}
+        />
+      </div>
+
+      {/* ── Modals ── */}
+      {agentModal.open && (
+        <AgentModal
+          agent={agentModal.agent}
+          isLoading={isLoading}
+          onClose={() => setAgentModal({ open: false, agent: null })}
+          onSave={handleSaveAgent}
+        />
+      )}
+
+      {formsModal.open && formsAgent && (
+        <FormsModal
+          agent={formsAgent}
+          isLoading={isLoading}
+          onClose={() => setFormsModal({ open: false, agentId: null })}
+          onAssign={handleAssignForm}
+          onRemove={handleRemoveForm}
+        />
+      )}
+
+      {deleteModal.open && (
+        <DeleteModal
+          message={deleteModal.message}
+          isLoading={isLoading}
+          onCancel={() => setDeleteModal({ open: false, ids: [], message: "" })}
+          onConfirm={confirmDelete}
+        />
+      )}
+    </DashLayout>
+  );
+};
