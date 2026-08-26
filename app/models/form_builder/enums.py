@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import enum
+from enum import Enum
 
 
-class QuestionDefinitionStatus(str, enum.Enum):
+class QuestionDefinitionStatus(str, Enum):
     """
     Statut global d'une question dans la banque.
     """
@@ -12,7 +12,7 @@ class QuestionDefinitionStatus(str, enum.Enum):
     ARCHIVED = "ARCHIVED"
 
 
-class QuestionGroupStatus(str, enum.Enum):
+class QuestionGroupStatus(str, Enum):
     """
     Statut global d'un groupe de questions dans la banque.
     """
@@ -21,7 +21,7 @@ class QuestionGroupStatus(str, enum.Enum):
     ARCHIVED = "ARCHIVED"
 
 
-class QuestionType(str, enum.Enum):
+class QuestionType(str, Enum):
     """
     Types de questions supportés par le moteur.
 
@@ -112,3 +112,9 @@ class QuestionType(str, enum.Enum):
     NOTE = "NOTE"
     CONSENT = "CONSENT"
     HIDDEN = "HIDDEN"
+
+
+class ProjectStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    ARCHIVED = "ARCHIVED"

@@ -2,6 +2,33 @@
 Schemas Pydantic du moteur Form Builder.
 """
 
+from app.schemas.form_builder.project_definition import (
+    ProjectDefinitionCreate,
+    ProjectDefinitionListResponse,
+    ProjectDefinitionResponse,
+    ProjectDefinitionUpdate,
+)
+from app.schemas.form_builder.project_question import (
+    ProjectQuestionCreate,
+    ProjectQuestionListResponse,
+    ProjectQuestionResponse,
+    ProjectQuestionUpdate,
+)
+from app.schemas.form_builder.project_question_config import (
+    ProjectQuestionConfig,
+    ProjectQuestionDisplayConfig,
+    ProjectQuestionValidationConfig,
+)
+from app.schemas.form_builder.project_question_dependency import (
+    ProjectQuestionDependencyCreate,
+    ProjectQuestionDependencyResponse,
+)
+from app.schemas.form_builder.project_section import (
+    ProjectSectionCreate,
+    ProjectSectionListResponse,
+    ProjectSectionResponse,
+    ProjectSectionUpdate,
+)
 from app.schemas.form_builder.question_definition import (
     QuestionCreateRequest,
     QuestionDefinitionCreate,
@@ -52,4 +79,21 @@ __all__ = [
     "QuestionGroupUpdate",
     "QuestionGroupDetailResponse",
     "QuestionGroupQuestionResponse",
+    "ProjectDefinitionCreate",
+    "ProjectDefinitionListResponse",
+    "ProjectDefinitionResponse",
+    "ProjectDefinitionUpdate",
+    "ProjectSectionCreate",
+    "ProjectSectionListResponse",
+    "ProjectSectionResponse",
+    "ProjectSectionUpdate",
+    "ProjectQuestionCreate",
+    "ProjectQuestionListResponse",
+    "ProjectQuestionResponse",
+    "ProjectQuestionUpdate",
+    "ProjectQuestionConfig",
+    "ProjectQuestionDisplayConfig",
+    "ProjectQuestionValidationConfig",
+    "ProjectQuestionDependencyCreate",
+    "ProjectQuestionDependencyResponse",
 ]

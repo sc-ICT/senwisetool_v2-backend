@@ -3,6 +3,18 @@ Modèles du moteur de construction de formulaires
 et de collecte terrain.
 """
 
+from app.models.form_builder.project_definition import (
+    ProjectDefinition,
+)
+from app.models.form_builder.project_question import (
+    ProjectQuestion,
+)
+from app.models.form_builder.project_question_dependency import (
+    ProjectQuestionDependency,
+)
+from app.models.form_builder.project_section import (
+    ProjectSection,
+)
 from app.models.form_builder.question_definition import (
     QuestionDefinition,
 )
@@ -25,4 +37,8 @@ __all__ = [
     "QuestionOption",
     "QuestionGroup",
     "QuestionGroupMember",
+    "ProjectDefinition",
+    "ProjectSection",
+    "ProjectQuestion",
+    "ProjectQuestionDependency",
 ]

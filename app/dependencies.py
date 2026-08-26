@@ -14,6 +14,12 @@ from app.database import AsyncSessionLocal, get_db
 from app.models.user import User
 from app.services.archive import ArchiveService
 from app.services.file_system import FileSystemService
+from app.services.form_builder.project_definition import ProjectDefinitionService
+from app.services.form_builder.project_question import ProjectQuestionService
+from app.services.form_builder.project_question_dependency import (
+    ProjectQuestionDependencyService,
+)
+from app.services.form_builder.project_section import ProjectSectionService
 from app.services.form_builder.question_bank import (
     QuestionBankService,
 )
@@ -121,6 +127,38 @@ def get_question_group_service(
 ) -> QuestionGroupService:
     return QuestionGroupService(
         session=session,
+    )
+
+
+def get_project_definition_service(
+    session: AsyncSession = Depends(get_db),
+) -> ProjectDefinitionService:
+    return ProjectDefinitionService(
+        session=session,
+    )
+
+
+def get_project_section_service(
+    session: AsyncSession = Depends(get_db),
+) -> ProjectSectionService:
+    return ProjectSectionService(
+        session=session,
+    )
+
+
+def get_project_question_service(
+    session: AsyncSession = Depends(get_db),
+) -> ProjectQuestionService:
+    return ProjectQuestionService(
+        session=session,
+    )
+
+
+def get_project_question_dependency_service(
+    session: AsyncSession = Depends(get_db),
+) -> ProjectQuestionDependencyService:
+    return ProjectQuestionDependencyService(
+        session,
     )
 
 

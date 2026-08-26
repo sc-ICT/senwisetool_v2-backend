@@ -11,7 +11,18 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routes import auth, file_system, form_builder, question_groups
+from app.routes import (
+    auth,
+    file_system,
+    form_builder,
+    project_questions,
+    project_sections,
+    projects,
+    question_groups,
+)
+from app.routes.project_question_dependencies import (
+    router as project_question_dependencies_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,24 +116,37 @@ async def health() -> dict:
 
 
 # ─── ROUTES D'AUTHENTIFICATION ───────────────────────────────────────────────────────────
-
 app.include_router(auth.router)
 
 
 # ─── ROUTES DU FILE SYSTEM ───────────────────────────────────────────────────────────
-
 app.include_router(file_system.router)
+
 
 # ─── ROUTES DU FILE SYSTEM ───────────────────────────────────────────────────────────
-
 app.include_router(file_system.router)
 
-# ─── ROUTES DU FORM BUILDER ───────────────────────────────────────────────────────────
 
+# ─── ROUTES DU FORM BUILDER ───────────────────────────────────────────────────────────
 app.include_router(form_builder.router)
 
-# ─── ROUTES DU QUESTION GROUPS ───────────────────────────────────────────────────────────
 
+# ─── ROUTES DU QUESTION GROUPS ───────────────────────────────────────────────────────────
+app.include_router(question_groups.router)
+
+
+# ─── ROUTES DU PROJECT ───────────────────────────────────────────────────────────
+app.include_router(projects.router)
+
+
+# ─── ROUTES DU PROJECT SECTION ───────────────────────────────────────────────────────────
+app.include_router(project_sections.router)
+
+
+# ─── ROUTES DU PROJECT QUESTION ───────────────────────────────────────────────────────────
 app.include_router(
-    question_groups.router,
+    project_questions.router,
 )
+
+
+app.include_router(project_question_dependencies_router)
