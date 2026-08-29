@@ -1,5 +1,17 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.form_builder.section_repeat import SectionRepeatConfig
+
+
+class ProjectSectionConfig(BaseModel):
+    repeat: SectionRepeatConfig = Field(
+        default_factory=SectionRepeatConfig,
+    )
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
 
 class ProjectSectionCreate(BaseModel):
     name: str = Field(
@@ -9,8 +21,8 @@ class ProjectSectionCreate(BaseModel):
 
     description: str | None = None
 
-    config: dict = Field(
-        default_factory=dict,
+    config: ProjectSectionConfig = Field(
+        default_factory=ProjectSectionConfig,
     )
 
 
@@ -23,7 +35,7 @@ class ProjectSectionUpdate(BaseModel):
 
     description: str | None = None
 
-    config: dict | None = None
+    config: ProjectSectionConfig | None = None
 
 
 class ProjectSectionResponse(BaseModel):

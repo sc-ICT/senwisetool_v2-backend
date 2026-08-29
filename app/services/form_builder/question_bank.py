@@ -41,6 +41,32 @@ class QuestionBankService:
     ) -> None:
         self.session = session
 
+    async def get_by_code(
+        self,
+        *,
+        user_id: int,
+        code: str,
+    ) -> QuestionDefinition | None:
+        """
+        Recherche une question de la banque par son code.
+        """
+
+        normalized_code = code.strip()
+
+        if not normalized_code:
+            raise ValueError("Le code de la question est obligatoire.")
+
+        result = await self.session.execute(
+            select(QuestionDefinition)
+            .where(
+                QuestionDefinition.created_by == user_id,
+                QuestionDefinition.code == normalized_code,
+            )
+            .limit(1)
+        )
+
+        return result.scalar_one_or_none()
+
     async def create_question(
         self,
         *,

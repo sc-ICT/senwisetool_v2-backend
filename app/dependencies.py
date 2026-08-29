@@ -14,6 +14,7 @@ from app.database import AsyncSessionLocal, get_db
 from app.models.user import User
 from app.services.archive import ArchiveService
 from app.services.file_system import FileSystemService
+from app.services.form_builder.form_import import FormImportService
 from app.services.form_builder.project_definition import ProjectDefinitionService
 from app.services.form_builder.project_question import ProjectQuestionService
 from app.services.form_builder.project_question_dependency import (
@@ -132,9 +133,13 @@ def get_question_group_service(
 
 def get_project_definition_service(
     session: AsyncSession = Depends(get_db),
+    file_system: FileSystemService = Depends(
+        get_file_system_service,
+    ),
 ) -> ProjectDefinitionService:
     return ProjectDefinitionService(
         session=session,
+        file_system=file_system,
     )
 
 
@@ -159,6 +164,14 @@ def get_project_question_dependency_service(
 ) -> ProjectQuestionDependencyService:
     return ProjectQuestionDependencyService(
         session,
+    )
+
+
+def get_form_import_service(
+    session: AsyncSession = Depends(get_db),
+) -> FormImportService:
+    return FormImportService(
+        session=session,
     )
 
 

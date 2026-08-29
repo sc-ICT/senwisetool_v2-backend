@@ -4,11 +4,6 @@ from app.models.form_builder.enums import ProjectStatus
 
 
 class ProjectDefinitionCreate(BaseModel):
-    code: str = Field(
-        min_length=1,
-        max_length=100,
-    )
-
     name: str = Field(
         min_length=1,
         max_length=255,
@@ -19,10 +14,6 @@ class ProjectDefinitionCreate(BaseModel):
     project_type: str = Field(
         min_length=1,
         max_length=100,
-    )
-
-    global_config: dict = Field(
-        default_factory=dict,
     )
 
 
@@ -55,6 +46,7 @@ class ProjectDefinitionResponse(BaseModel):
     status: ProjectStatus
     global_config: dict
     created_by: int
+    project_folder_id: int | None
 
     model_config = ConfigDict(
         from_attributes=True,

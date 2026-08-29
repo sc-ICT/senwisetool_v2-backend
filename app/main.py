@@ -15,6 +15,7 @@ from app.routes import (
     auth,
     file_system,
     form_builder,
+    form_import,
     project_questions,
     project_sections,
     projects,
@@ -144,9 +145,12 @@ app.include_router(project_sections.router)
 
 
 # ─── ROUTES DU PROJECT QUESTION ───────────────────────────────────────────────────────────
-app.include_router(
-    project_questions.router,
-)
+app.include_router(project_questions.router)
 
 
+# ─── ROUTES DU PROJECT DEPENDENCES ───────────────────────────────────────────────────────────
 app.include_router(project_question_dependencies_router)
+
+
+# ─── ROUTES DU PROJECT IMPORT QUESTIONS ───────────────────────────────────────────────────────────
+app.include_router(form_import.router)

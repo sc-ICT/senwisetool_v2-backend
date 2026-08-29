@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class FormImportIssue(BaseModel):
+    sheet: str | None = None
+    column: str | None = None
+    row: int | None = None
+    message: str
+
+
+class FormImportResult(BaseModel):
+    success: bool
+    message: str
+
+    sheets: int = 0
+    questions: int = 0
+    sections: int = 0
+    groups: int = 0
+    dependencies: int = 0
+
+    created_questions: int = 0
+    reused_questions: int = 0
+
+    created_project_questions: int = 0
+    reused_project_questions: int = 0
+
+    created_sections: int = 0
+    reused_sections: int = 0
+
+    created_groups: int = 0
+    reused_groups: int = 0
+
+    created_dependencies: int = 0
+    reused_dependencies: int = 0
+
+    issues: list[FormImportIssue] = Field(default_factory=list)
+
+
+class FormImportPlan(BaseModel):
+    """
+    Plan complet produit après validation du fichier Excel.
+
+    Aucun objet SQL n'est créé pendant la construction
+    de ce plan.
+    """
+
+    sheets: list[dict[str, Any]] = Field(default_factory=list)
+
+    questions: list[dict[str, Any]] = Field(default_factory=list)
+
+    sections: list[dict[str, Any]] = Field(default_factory=list)
+
+    groups: list[dict[str, Any]] = Field(default_factory=list)
+
+    dependencies: list[dict[str, Any]] = Field(default_factory=list)

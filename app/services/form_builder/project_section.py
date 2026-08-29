@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.form_builder.project_definition import (
     ProjectDefinition,
 )
+from app.models.form_builder.project_question import ProjectQuestion
 from app.models.form_builder.project_section import (
     ProjectSection,
 )
 from app.schemas.form_builder.project_section import (
+    ProjectSectionConfig,
     ProjectSectionCreate,
     ProjectSectionUpdate,
 )
@@ -36,6 +38,37 @@ class ProjectSectionService:
         )
 
         return result.scalar_one_or_none()
+
+    async def _validate_repeat_config(
+        self,
+        *,
+        project_id: int,
+        user_id: int,
+        config: ProjectSectionConfig,
+    ):
+        repeat = config.repeat
+
+        if not repeat.enabled:
+            return
+
+        if repeat.count_source is None:
+            raise ValueError(
+                "La section répétable doit définir " "une question source pour le nombre."
+            )
+
+        result = await self.session.execute(
+            select(ProjectQuestion).where(
+                ProjectQuestion.id == repeat.count_source.question_id,
+                ProjectQuestion.project_id == project_id,
+            )
+        )
+
+        source_question = result.scalar_one_or_none()
+
+        if source_question is None:
+            raise ValueError(
+                "La question source du nombre de répétitions " "n'existe pas dans ce projet."
+            )
 
     async def create(
         self,
@@ -72,6 +105,12 @@ class ProjectSectionService:
 
         max_position = result.scalar_one()
 
+        await self._validate_repeat_config(
+            project_id=project_id,
+            user_id=user_id,
+            config=data.config,
+        )
+
         section = ProjectSection(
             project_id=project_id,
             name=name,
@@ -79,7 +118,9 @@ class ProjectSectionService:
                 data.description.strip() if data.description and data.description.strip() else None
             ),
             position=max_position + 1,
-            config=data.config,
+            config=data.config.model_dump(
+                exclude_none=True,
+            ),
         )
 
         self.session.add(section)
@@ -154,7 +195,15 @@ class ProjectSectionService:
             section.description = data.description.strip() or None
 
         if data.config is not None:
-            section.config = data.config
+            await self._validate_repeat_config(
+                project_id=project_id,
+                user_id=user_id,
+                config=data.config,
+            )
+
+            section.config = data.config.model_dump(
+                exclude_none=True,
+            )
 
         await self.session.flush()
 

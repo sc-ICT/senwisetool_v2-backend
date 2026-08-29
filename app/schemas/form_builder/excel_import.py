@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.form_builder.enums import QuestionType
+
+
+class ExcelImportOption(BaseModel):
+    """
+    Option d'une version de question.
+
+    Les valeurs peuvent être littérales ou utiliser col(...).
+    """
+
+    value: str
+    label: str
+    position: int = Field(ge=0)
+    option_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+
+class ExcelImportQuestionVersion(BaseModel):
+    """
+    Paramètres de la version de la question.
+    """
+
+    label: str
+    help_text: str | None = None
+
+    question_type: QuestionType
+
+    base_config: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    options: list[ExcelImportOption] = Field(
+        default_factory=list,
+    )
+
+
+class ExcelImportQuestionGroup(BaseModel):
+    """
+    Groupe de la question dans la banque.
+    """
+
+    name: str
+    description: str | None = None
+
+
+class ExcelImportQuestion(BaseModel):
+    """
+    Définition complète de la question dans la banque.
+    """
+
+    code: str
+    name: str
+    description: str | None = None
+
+    version: ExcelImportQuestionVersion
+
+    group: ExcelImportQuestionGroup | None = None
+
+
+class ExcelImportSection(BaseModel):
+    """
+    Section du formulaire courant dans laquelle
+    la question sera ajoutée.
+    """
+
+    name: str
+    description: str | None = None
+
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+
+class ExcelImportProjectQuestion(BaseModel):
+    """
+    Configuration de l'utilisation de la question
+    dans le formulaire courant.
+    """
+
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+
+class ExcelImportConditionComparison(BaseModel):
+    """
+    Valeur utilisée par une condition.
+
+    source_type = CONSTANT
+        → value est utilisé
+
+    source_type = QUESTION
+        → question_code est utilisé
+    """
+
+    source_type: Literal["CONSTANT", "QUESTION"]
+
+    value: Any | None = None
+
+    question_code: str | None = None
+
+
+class ExcelImportCondition(BaseModel):
+    """
+    Condition de dépendance.
+    """
+
+    source_question_code: str
+
+    operator: str
+
+    comparison_value: ExcelImportConditionComparison | None = None
+
+
+class ExcelImportConditionGroup(BaseModel):
+    """
+    Groupe récursif de conditions.
+    """
+
+    operator: Literal["AND", "OR", "NOT"] = "AND"
+
+    conditions: list[ExcelImportCondition] = Field(
+        default_factory=list,
+    )
+
+    groups: list["ExcelImportConditionGroup"] = Field(
+        default_factory=list,
+    )
+
+
+class ExcelImportAction(BaseModel):
+    """
+    Action exécutée par une dépendance.
+
+    target_question_code est utilisé lorsque
+    target_type = QUESTION.
+
+    target_section_name est utilisé lorsque
+    target_type = SECTION.
+    """
+
+    type: str
+
+    target_type: Literal["QUESTION", "SECTION"] = "QUESTION"
+
+    target_question_code: str | None = None
+
+    target_section_name: str | None = None
+
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+
+class ExcelImportDependency(BaseModel):
+    """
+    Dépendance complète d'une question du formulaire.
+    """
+
+    condition: ExcelImportConditionGroup
+
+    actions_if_true: list[ExcelImportAction] = Field(
+        default_factory=list,
+    )
+
+    actions_if_false: list[ExcelImportAction] = Field(
+        default_factory=list,
+    )
+
+
+class ExcelImportQuestionParameters(BaseModel):
+    """
+    Contrat officiel du JSON placé en ligne 2
+    d'une colonne-question.
+    """
+
+    question: ExcelImportQuestion
+
+    section: ExcelImportSection
+
+    project_question: ExcelImportProjectQuestion = Field(
+        default_factory=ExcelImportProjectQuestion,
+    )
+
+    dependencies: list[ExcelImportDependency] = Field(
+        default_factory=list,
+    )
+
+
+ExcelImportConditionGroup.model_rebuild()

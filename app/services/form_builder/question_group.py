@@ -22,6 +22,31 @@ class QuestionGroupService:
     ) -> None:
         self.session = session
 
+    async def get_by_name(
+        self,
+        *,
+        user_id: int,
+        name: str,
+    ) -> QuestionGroup | None:
+        """
+        Recherche un groupe appartenant à l'utilisateur
+        par son nom.
+        """
+
+        normalized_name = name.strip()
+
+        if not normalized_name:
+            raise ValueError("Le nom du groupe est obligatoire.")
+
+        result = await self.session.execute(
+            select(QuestionGroup).where(
+                QuestionGroup.created_by == user_id,
+                QuestionGroup.name == normalized_name,
+            )
+        )
+
+        return result.scalar_one_or_none()
+
     async def create(
         self,
         *,

@@ -3,11 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import (
@@ -22,14 +20,6 @@ from app.database import Base
 class ProjectQuestionDependency(Base):
     __tablename__ = "project_question_dependencies"
 
-    __table_args__ = (
-        UniqueConstraint(
-            "target_question_id",
-            "source_question_id",
-            name="uq_project_question_dependency_pair",
-        ),
-    )
-
     id: Mapped[int] = mapped_column(
         primary_key=True,
     )
@@ -43,23 +33,21 @@ class ProjectQuestionDependency(Base):
         index=True,
     )
 
-    source_question_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "project_questions.id",
-            ondelete="CASCADE",
-        ),
-        nullable=False,
-        index=True,
-    )
-
-    operator: Mapped[str] = mapped_column(
-        String(50),
+    condition: Mapped[dict] = mapped_column(
+        JSON,
         nullable=False,
     )
 
-    value: Mapped[str] = mapped_column(
-        String(500),
+    actions_if_true: Mapped[list] = mapped_column(
+        JSON,
         nullable=False,
+        default=list,
+    )
+
+    actions_if_false: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -71,9 +59,4 @@ class ProjectQuestionDependency(Base):
     target_question = relationship(
         "ProjectQuestion",
         foreign_keys=[target_question_id],
-    )
-
-    source_question = relationship(
-        "ProjectQuestion",
-        foreign_keys=[source_question_id],
     )

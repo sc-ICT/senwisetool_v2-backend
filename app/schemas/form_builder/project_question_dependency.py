@@ -1,37 +1,187 @@
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-DependencyOperator = Literal[
-    "EQUALS",
-    "NOT_EQUALS",
-    "IN",
-    "NOT_IN",
-]
+
+class DependencyComparisonValue(BaseModel):
+    source_type: Literal["CONSTANT", "QUESTION"]
+
+    value: str | None = None
+
+    question_id: int | None = None
+
+
+class DependencyCondition(BaseModel):
+    source_question_id: int
+
+    operator: str
+
+    comparison_value: DependencyComparisonValue | None = None
+
+
+class DependencyConditionGroup(BaseModel):
+    operator: Literal["AND", "OR"]
+
+    conditions: list[DependencyCondition] = Field(default_factory=list)
+
+    groups: list["DependencyConditionGroup"] = Field(default_factory=list)
+
+
+class DependencyAction(BaseModel):
+    type: str
+
+    target_type: Literal["QUESTION", "SECTION"]
+
+    target_id: int
+
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectQuestionDependencyCreate(BaseModel):
-    source_question_id: int = Field(
-        gt=0,
-    )
+    condition: DependencyConditionGroup
 
-    operator: DependencyOperator
+    actions_if_true: list[DependencyAction] = Field(default_factory=list)
 
-    value: str = Field(
-        min_length=1,
-        max_length=500,
-    )
+    actions_if_false: list[DependencyAction] = Field(default_factory=list)
 
 
 class ProjectQuestionDependencyResponse(BaseModel):
     id: int
-
     target_question_id: int
-    source_question_id: int
 
-    operator: DependencyOperator
-    value: str
+    condition: DependencyConditionGroup
 
-    model_config = {
-        "from_attributes": True,
-    }
+    actions_if_true: list[DependencyAction]
+    actions_if_false: list[DependencyAction]
+
+    created_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
+
+DependencyConditionGroup.model_rebuild()
+
+
+# class ProjectQuestionDependencyResponse(BaseModel):
+#     id: int
+
+#     target_question_id: int
+#     source_question_id: int
+
+#     operator: DependencyOperator
+#     value: str
+
+#     model_config = {
+#         "from_attributes": True,
+#     }
+
+
+# class DynamicValueSchema(BaseModel):
+#     """
+#     Valeur utilisée dans une condition ou une action.
+#     """
+
+#     source_type: Literal["CONSTANT", "QUESTION"]
+
+#     value: Any = None
+
+#     question_id: int | None = None
+
+#     @model_validator(mode="after")
+#     def validate_source(self):
+#         if self.source_type == "CONSTANT":
+#             if self.question_id is not None:
+#                 raise ValueError(
+#                     "question_id ne doit pas être fourni " "lorsque source_type vaut CONSTANT."
+#                 )
+
+#         elif self.source_type == "QUESTION":
+#             if self.question_id is None:
+#                 raise ValueError(
+#                     "question_id est obligatoire " "lorsque source_type vaut QUESTION."
+#                 )
+
+#         return self
+
+
+# class DependencyConditionSchema(BaseModel):
+#     source_question_id: int
+
+#     operator: str
+
+#     comparison_value: DynamicValueSchema | None = None
+
+
+# class DependencyConditionGroupSchema(BaseModel):
+#     operator: Literal["AND", "OR", "NOT"] = "AND"
+
+#     conditions: list[DependencyConditionSchema] = Field(
+#         default_factory=list,
+#     )
+
+#     groups: list["DependencyConditionGroupSchema"] = Field(
+#         default_factory=list,
+#     )
+
+
+# DependencyConditionGroupSchema.model_rebuild()
+
+
+# class DependencyActionSchema(BaseModel):
+# type: str
+
+#     target_type: Literal[
+#         "QUESTION",
+#         "GROUP",
+#         "SECTION",
+#     ]
+
+#     target_id: int
+
+#     config: dict[str, Any] = Field(
+#         default_factory=dict,
+#     )
+
+
+# class DependencyRuleSchema(BaseModel):
+#     condition: DependencyConditionGroupSchema
+
+#     actions_if_true: list[DependencyActionSchema] = Field(
+#         default_factory=list,
+#     )
+
+#     actions_if_false: list[DependencyActionSchema] = Field(
+#         default_factory=list,
+#     )
+
+
+# class ProjectQuestionDependencyCreate(BaseModel):
+#     source_question_id: int = Field(
+#         gt=0,
+#     )
+
+#     operator: DependencyOperator
+
+#     value: str = Field(
+#         min_length=1,
+#         max_length=500,
+#     )
+
+
+# class ProjectQuestionDependencyRuleCreate(BaseModel):
+#     """
+#     Création d'une règle comportementale complète.
+#     """
+
+#     target_type: Literal[
+#         "QUESTION",
+#         "GROUP",
+#         "SECTION",
+#     ] = "QUESTION"
+
+#     target_id: int
+
+#     rule: DependencyRuleSchema

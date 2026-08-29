@@ -7,6 +7,7 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.file_node import FileNode
 from app.models.form_builder.enums import ProjectStatus
 
 if TYPE_CHECKING:
@@ -68,6 +69,16 @@ class ProjectDefinition(Base):
         index=True,
     )
 
+    project_folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "file_nodes.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -93,4 +104,10 @@ class ProjectDefinition(Base):
         cascade="all, delete-orphan",
         order_by="ProjectSection.position",
         lazy="selectin",
+    )
+
+    project_folder: Mapped["FileNode | None"] = relationship(
+        "FileNode",
+        foreign_keys=[project_folder_id],
+        lazy="raise",
     )

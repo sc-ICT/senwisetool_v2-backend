@@ -1,0 +1,106 @@
+from typing import Any
+
+DEFAULT_PROJECT_GLOBAL_CONFIG: dict[str, Any] = {
+    "collection": {
+        "require_all_questions": False,
+    },
+    "geolocation": {
+        "enabled": False,
+        "accuracy": None,
+        "capture_on_submit": True,
+        "max_distance_between_points": None,
+        "min_points": None,
+        "max_points": None,
+    },
+    "mapping": {
+        "enabled": False,
+        "basemap": "standard",  # "standard" | "satellite"
+    },
+    "agent_monitoring": {
+        "enabled": False,
+        "track_gps": False,
+        "gps_interval_seconds": 30,
+        "track_camera": False,
+        "camera_interval_seconds": 300,
+        "track_audio": False,
+        "audio_clip_duration_seconds": 10,
+    },
+    "anti_fraud": {
+        "enabled": False,
+        "capture_device_info": True,
+        "capture_location_history": False,
+    },
+    "offline": {
+        "enabled": True,
+    },
+    "media": {
+        "allow_photo": True,
+        "allow_video": False,
+        "allow_audio": False,
+    },
+    "attachments": {
+        "enabled": False,
+    },
+}
+
+from copy import deepcopy
+from typing import Any
+
+
+def normalize_project_global_config(
+    config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = deepcopy(DEFAULT_PROJECT_GLOBAL_CONFIG)
+
+    if not config:
+        return normalized
+
+    for section_name, section_values in config.items():
+        if not isinstance(section_values, dict):
+            normalized[section_name] = section_values
+            continue
+
+        if section_name not in normalized:
+            normalized[section_name] = deepcopy(section_values)
+            continue
+
+        normalized[section_name].update(section_values)
+
+    # ------------------------------------------------------------
+    # Compatibilité avec les anciennes valeurs du fond de carte
+    # ------------------------------------------------------------
+
+    mapping = normalized.get("mapping")
+
+    if isinstance(mapping, dict):
+        basemap = mapping.get("basemap")
+
+        if basemap == "standard":
+            mapping["basemap"] = "standard"
+
+        elif basemap == "satellite":
+            mapping["basemap"] = "satellite"
+
+    return normalized
+
+
+def merge_project_global_config(
+    current: dict[str, Any] | None,
+    patch: dict[str, Any],
+) -> dict[str, Any]:
+    merged = deepcopy(current if isinstance(current, dict) else DEFAULT_PROJECT_GLOBAL_CONFIG)
+
+    for section_name, section_values in patch.items():
+        if not isinstance(section_values, dict):
+            merged[section_name] = section_values
+            continue
+
+        current_section = merged.get(section_name)
+
+        if not isinstance(current_section, dict):
+            merged[section_name] = deepcopy(section_values)
+            continue
+
+        current_section.update(section_values)
+
+    return normalize_project_global_config(merged)

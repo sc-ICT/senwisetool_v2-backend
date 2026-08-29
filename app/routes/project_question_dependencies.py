@@ -97,6 +97,45 @@ async def create_dependency(
         ) from exc
 
 
+@router.put(
+    "/{dependency_id}",
+    response_model=ApiResponse[ProjectQuestionDependencyResponse],
+)
+async def update_dependency(
+    project_id: int,
+    section_id: int,
+    target_question_id: int,
+    dependency_id: int,
+    data: ProjectQuestionDependencyCreate,
+    service: ProjectQuestionDependencyService = Depends(
+        get_project_question_dependency_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        dependency = await service.update(
+            project_id=project_id,
+            section_id=section_id,
+            target_question_id=target_question_id,
+            dependency_id=dependency_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Dépendance modifiée avec succès.",
+            data=ProjectQuestionDependencyResponse.model_validate(
+                dependency,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
 @router.delete(
     "/{dependency_id}",
     response_model=ApiResponse[None],
