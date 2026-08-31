@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Le Décollage - Masterclass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sky-top:#57C7F2;
+    --sky-bottom:#FFD65C;
+    --sun:#FFC93C;
+    --coral:#FF6B4A;
+    --pink:#FF4FA3;
+    --mint:#1FC9A8;
+    --ink:#1B2A4A;
+    --cream:#FFF9EE;
+    --white:#FFFFFF;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'Nunito', sans-serif;
+    background:#dff3ff;
+    display:flex;
+    justify-content:center;
+    padding:24px 0;
+  }
+  .poster{
+    width:763px;
+    background: linear-gradient(180deg, var(--sky-top) 0%, #8FD9F5 22%, var(--cream) 40%);
+    position:relative;
+    overflow:hidden;
+    border-radius:28px;
+    box-shadow:0 20px 60px rgba(20,50,90,0.25);
+    color:var(--ink);
+  }
+  /* confetti */
+  .confetti{position:absolute; border-radius:50%; opacity:0.85;}
+  /* header */
+  .eyebrow{
+    text-align:center;
+    letter-spacing:6px;
+    font-family:'Nunito', sans-serif;
+    font-weight:800;
+    font-size:13px;
+    color:var(--white);
+    padding-top:28px;
+  }
+  .title-wrap{ text-align:center; padding:10px 20px 6px; position:relative; z-index:3;}
+  .title-wrap h1{
+    font-family:'Baloo 2', sans-serif;
+    font-weight:800;
+    font-size:58px;
+    color:var(--white);
+    text-shadow: 4px 4px 0 var(--coral);
+    line-height:1;
+  }
+  .title-wrap h1 span{color:var(--sun); text-shadow:4px 4px 0 var(--pink);}
+  .subtitle{
+    text-align:center;
+    font-weight:800;
+    font-size:14px;
+    letter-spacing:2px;
+    color:var(--ink);
+    background:var(--sun);
+    display:inline-block;
+    padding:6px 18px;
+    border-radius:999px;
+    margin-top:8px;
+    box-shadow:0 4px 0 rgba(0,0,0,0.08);
+  }
+  .subtitle-wrap{text-align:center; position:relative; z-index:3;}
+
+  /* date badge */
+  .date-badge{
+    position:absolute;
+    top:24px; right:22px;
+    background:var(--white);
+    border-radius:20px;
+    padding:14px 18px;
+    text-align:center;
+    box-shadow:0 8px 20px rgba(20,50,90,0.18);
+    z-index:5;
+    width:150px;
+  }
+  .date-badge .lbl{
+    font-weight:800; font-size:12px; color:var(--coral); letter-spacing:1px;
+    display:flex; align-items:center; justify-content:center; gap:5px;
+  }
+  .date-badge .day{
+    font-family:'Baloo 2'; font-weight:800; font-size:46px; color:var(--ink); line-height:1;
+    margin:2px 0;
+  }
+  .date-badge .month{font-weight:800; font-size:15px; color:var(--ink);}
+  .date-badge .year{font-weight:700; font-size:14px; color:#7a8194; margin-bottom:8px;}
+  .date-badge hr{border:none; border-top:2px dashed #ffe0b0; margin:8px 0;}
+  .date-badge .time-lbl{font-size:11px; font-weight:800; color:var(--mint);}
+  .date-badge .time{font-family:'Baloo 2'; font-weight:700; font-size:20px; color:var(--ink);}
+  .date-badge .gmt{font-size:11px; color:#7a8194; font-weight:700;}
+  .online-pill{
+    margin-top:8px; background:var(--mint); color:white; font-weight:800; font-size:11px;
+    border-radius:999px; padding:5px 10px; display:inline-block;
+  }
+
+  /* hero scene */
+  .hero{
+    position:relative;
+    height:300px;
+    margin-top:6px;
+    display:flex; align-items:flex-end; justify-content:center;
+    overflow:hidden;
+  }
+  .sun-glow{
+    position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    width:230px; height:230px; border-radius:50%;
+    background:radial-gradient(circle, rgba(255,201,60,0.9) 0%, rgba(255,201,60,0.35) 45%, rgba(255,201,60,0) 70%);
+  }
+  .cloud{
+    position:absolute; background:white; border-radius:50px; opacity:0.9;
+  }
+  .rocket-emoji{
+    font-size:120px;
+    filter: drop-shadow(0 10px 12px rgba(0,0,0,0.15));
+    transform: rotate(0deg);
+    z-index:4;
+    animation: float 3s ease-in-out infinite;
+  }
+  @keyframes float{ 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
+  .flame{
+    position:absolute;
+    bottom:26px;
+    left:50%; transform:translateX(-50%);
+    width:26px; height:70px;
+    background:linear-gradient(180deg, #FFDE59 0%, var(--coral) 55%, var(--pink) 100%);
+    border-radius:0 0 50% 50%;
+    filter:blur(2px);
+    z-index:3;
+  }
+
+  /* headline block */
+  .headline-block{
+    padding:14px 30px 6px;
+  }
+  .headline-block h2{
+    font-family:'Baloo 2'; font-weight:800; font-size:26px; line-height:1.15; color:var(--ink);
+  }
+  .headline-block h2 .hl{
+    color:var(--pink);
+  }
+  .headline-block h2 .hl2{color:var(--coral);}
+  .decision-line{
+    margin-top:14px; font-weight:800; font-size:14px;
+  }
+  .decision-line .accent{color:var(--pink);}
+  .decision-line .big{font-family:'Baloo 2'; font-size:20px; display:block; color:var(--ink);}
+
+  .question-card{
+    margin:16px 30px 0;
+    background:var(--white);
+    border:3px solid var(--sun);
+    border-radius:22px;
+    padding:16px 18px;
+    display:flex; gap:14px; align-items:flex-start;
+    box-shadow:0 8px 0 rgba(255,201,60,0.35);
+  }
+  .question-card .q{
+    font-family:'Baloo 2'; font-size:30px; color:var(--pink); flex-shrink:0;
+  }
+  .question-card p{font-weight:700; font-size:14.5px; color:var(--ink); line-height:1.4;}
+
+  /* gain section */
+  .section-title{
+    font-family:'Baloo 2'; font-weight:800; font-size:20px; margin:26px 30px 14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .section-title .hi{color:var(--mint);}
+  .gain-grid{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:0 30px;
+  }
+  .gain-card{
+    background:var(--white); border-radius:18px; padding:14px 8px; text-align:center;
+    box-shadow:0 6px 14px rgba(20,50,90,0.08);
+  }
+  .gain-card .ic{font-size:26px; display:block; margin-bottom:6px;}
+  .gain-card p{font-weight:800; font-size:11.5px; line-height:1.25; color:var(--ink);}
+  .tagline{
+    text-align:center; font-family:'Baloo 2'; font-weight:700; font-size:15px;
+    margin:18px 30px 0; color:var(--white);
+    background:var(--coral);
+    padding:10px; border-radius:16px;
+  }
+
+  /* program + pricing row */
+  .row{ display:flex; gap:16px; margin:24px 30px 0; align-items:flex-start;}
+  .program-card{
+    flex:1.4; background:var(--white); border-radius:20px; padding:16px 18px;
+    box-shadow:0 6px 14px rgba(20,50,90,0.08);
+  }
+  .program-card h3{
+    font-family:'Baloo 2'; font-size:16px; background:var(--mint); color:white;
+    display:inline-block; padding:6px 14px; border-radius:999px; margin-bottom:12px;
+  }
+  .program-card ul{list-style:none;}
+  .program-card li{
+    display:flex; gap:10px; align-items:flex-start; font-weight:700; font-size:12.5px;
+    padding:6px 0; border-bottom:1px dashed #eee; color:var(--ink);
+  }
+  .program-card li:last-child{border-bottom:none;}
+  .program-card li .em{font-size:16px;}
+  .program-card li.hot{color:var(--pink);}
+
+  .price-col{flex:1; display:flex; flex-direction:column; gap:14px;}
+  .price-card{
+    background:linear-gradient(135deg, var(--pink), var(--coral));
+    border-radius:20px; padding:16px; text-align:center; color:white;
+    box-shadow:0 8px 18px rgba(255,79,163,0.35);
+  }
+  .price-card .lbl{font-weight:800; font-size:12px; letter-spacing:1px;}
+  .price-card .amt{font-family:'Baloo 2'; font-size:38px; font-weight:800; margin:4px 0;}
+  .price-card .free{
+    margin-top:8px; background:white; color:var(--pink); font-weight:800; font-size:11px;
+    border-radius:999px; padding:5px; 
+  }
+
+  /* bonus + cta */
+  .bottom{
+    margin:26px 30px 0; background:var(--white); border-radius:22px; padding:18px;
+    box-shadow:0 6px 14px rgba(20,50,90,0.08);
+  }
+  .bottom h3{
+    font-family:'Baloo 2'; font-size:16px; color:var(--ink); display:flex; align-items:center; gap:8px; margin-bottom:10px;
+  }
+  .bottom ul{list-style:none; columns:1;}
+  .bottom li{
+    font-weight:700; font-size:12.5px; padding:5px 0; color:var(--ink); display:flex; gap:8px;
+  }
+
+  .cta-strip{
+    margin:20px 30px 0; display:flex; gap:16px; align-items:center;
+    background:linear-gradient(120deg, var(--sun), var(--coral));
+    border-radius:22px; padding:18px 20px;
+  }
+  .cta-text{flex:1; color:white;}
+  .cta-text h3{font-family:'Baloo 2'; font-size:20px; line-height:1.2; margin-bottom:4px;}
+  .cta-text p{font-weight:700; font-size:12.5px; font-style:italic;}
+  .qr-box{
+    background:white; border-radius:14px; padding:8px; text-align:center; width:110px;
+  }
+  .qr-box .fake-qr{
+    width:90px; height:90px; margin:0 auto 6px;
+    background:
+      repeating-linear-gradient(0deg, var(--ink) 0 4px, transparent 4px 8px),
+      repeating-linear-gradient(90deg, var(--ink) 0 4px, transparent 4px 8px);
+    background-blend-mode:multiply;
+    border-radius:6px;
+  }
+  .qr-box p{font-size:9px; font-weight:800; color:var(--ink); line-height:1.2;}
+  .lock{font-size:9px; font-weight:800; color:var(--mint); margin-top:4px; display:block;}
+
+  footer{
+    margin-top:24px;
+    background:var(--ink);
+    color:white;
+    text-align:center;
+    padding:14px 10px;
+    font-weight:800;
+    font-size:12px;
+    letter-spacing:3px;
+  }
+  footer span{color:var(--sun);}
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- confetti decorations -->
+  <div class="confetti" style="width:10px;height:10px;background:var(--pink); top:60px; left:40px;"></div>
+  <div class="confetti" style="width:8px;height:8px;background:var(--mint); top:120px; left:90px;"></div>
+  <div class="confetti" style="width:12px;height:12px;background:var(--sun); top:200px; left:30px;"></div>
+  <div class="confetti" style="width:9px;height:9px;background:var(--coral); top:90px; left:340px;"></div>
+  <div class="confetti" style="width:7px;height:7px;background:var(--pink); top:250px; left:600px;"></div>
+  <div class="confetti" style="width:11px;height:11px;background:var(--mint); top:40px; left:480px;"></div>
+
+  <div class="eyebrow">MASTERCLASS EN LIGNE</div>
+
+  <div class="date-badge">
+    <div class="lbl">📅 SAMEDI</div>
+    <div class="day">19</div>
+    <div class="month">SEPTEMBRE</div>
+    <div class="year">2026</div>
+    <hr>
+    <div class="time-lbl">⏰ HEURE</div>
+    <div class="time">15H00</div>
+    <div class="gmt">(GMT+1)</div>
+    <div class="online-pill">🔊 100% EN LIGNE</div>
+  </div>
+
+  <div class="title-wrap">
+    <h1>LE DÉC<span>O</span>LLAGE</h1>
+  </div>
+  <div class="subtitle-wrap">
+    <div class="subtitle">TON TREMPLIN VERS LA LIBERTÉ FINANCIÈRE</div>
+  </div>
+
+  <div class="hero">
+    <div class="sun-glow"></div>
+    <div class="cloud" style="width:90px;height:30px; top:30px; left:20px;"></div>
+    <div class="cloud" style="width:70px;height:24px; top:70px; right:30px;"></div>
+    <div class="cloud" style="width:60px;height:20px; bottom:40px; left:60px;"></div>
+    <div class="flame"></div>
+    <div class="rocket-emoji">🚀</div>
+  </div>
+
+  <div class="headline-block">
+    <h2>DÉCOUVRE <span class="hl">LES OPPORTUNITÉS</span> QUE PERSONNE NE T'A ENCORE <span class="hl2">RÉVÉLÉES !</span></h2>
+    <div class="decision-line">
+      <span class="accent">UNE SEULE DÉCISION PEUT CHANGER</span>
+      <span class="big">TON AVENIR ✨</span>
+    </div>
+  </div>
+
+  <div class="question-card">
+    <div class="q">?</div>
+    <p>Et si ton prochain business était plus simple que tu ne l'imagines...</p>
+  </div>
+
+  <div class="section-title"><span class="hi">🎁</span> CE QUE TU VAS GAGNER</div>
+  <div class="gain-grid">
+    <div class="gain-card"><span class="ic">🎯</span><p>CLARTÉ SUR TON AVENIR</p></div>
+    <div class="gain-card"><span class="ic">💡</span><p>ACCÈS À DES OPPORTUNITÉS INÉDITES</p></div>
+    <div class="gain-card"><span class="ic">🗺️</span><p>PLAN D'ACTION POUR LANCER TON BUSINESS</p></div>
+    <div class="gain-card"><span class="ic">📈</span><p>MINDSET D'ENTREPRENEUR GAGNANT</p></div>
+  </div>
+  <div class="tagline">1 MASTERCLASS. 1 DÉCISION. 1 NOUVELLE VIE. 🌟</div>
+
+  <div class="row">
+    <div class="program-card">
+      <h3>🗓️ AU PROGRAMME</h3>
+      <ul>
+        <li><span class="em">🕸️</span> Les techniques naïves pour faire du réseautage</li>
+        <li><span class="em">🙏</span> La spiritualité dans le business</li>
+        <li><span class="em">⚖️</span> Business vs carrière</li>
+        <li><span class="em">📣</span> Initiation au marketing : l'art de savoir vendre</li>
+        <li><span class="em">💻</span> Business en ligne : opportunité ou danger</li>
+        <li><span class="em">💞</span> Le sexe et le business</li>
+        <li class="hot"><span class="em">⭐</span> Les 5 business rentables à portée de tous</li>
+        <li><span class="em">🤖</span> L'intelligence artificielle : un levier à double tranchant</li>
+      </ul>
+    </div>
+    <div class="price-col">
+      <div class="price-card">
+        <div class="lbl">INSCRIPTION</div>
+        <div class="amt">3,55$</div>
+        <div class="free">PARTICIPATION GRATUITE</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <h3>🎁 BONUS EXCLUSIFS</h3>
+    <ul>
+      <li>✅ PDF résumé de la masterclass</li>
+      <li>✅ Checklist : lancer son business en 14 jours</li>
+      <li>✅ Accès au groupe privé des participants</li>
+      <li>✅ Ressources et outils pratiques</li>
+    </ul>
+  </div>
+
+  <div class="cta-strip">
+    <div class="cta-text">
+      <h3>LES PLACES SONT LIMITÉES !</h3>
+      <p>Prépare-toi à prendre ton envol. Ton décollage commence ici ! 🚀</p>
+    </div>
+    <div class="qr-box">
+      <div class="fake-qr"></div>
+      <p>SCANNE LE QR CODE OU INSCRIS-TOI MAINTENANT</p>
+      <span class="lock">🔒 PAIEMENT SÉCURISÉ</span>
+    </div>
+  </div>
+
+  <footer>APPRENDRE <span>•</span> COMPRENDRE <span>•</span> AGIR <span>•</span> RÉUSSIR</footer>
+</div>
+</body>
+</html>
