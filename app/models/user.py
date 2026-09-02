@@ -10,6 +10,7 @@ from app.database import Base
 from app.models.enums import UserRole, UserStatus
 
 if TYPE_CHECKING:
+    from app.models.agent import Agent
     from app.models.file_node import FileNode
 
 # if TYPE_CHECKING:
@@ -64,44 +65,9 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
-    # Relations — TYPE_CHECKING évite l'import circulaire
-    # SQLAlchemy résout les strings automatiquement au runtime
-    # mobile_agents: Mapped[list[UserMobile]] = relationship(
-    #     "UserMobile", back_populates="user", cascade="all, delete-orphan"
-    # )
-    # question_domains: Mapped[list[QuestionDomain]] = relationship(
-    #     "QuestionDomain", back_populates="user", cascade="all, delete-orphan"
-    # )
-    # questions: Mapped[list[Question]] = relationship(
-    #     "Question", back_populates="user", cascade="all, delete-orphan"
-    # )
-    # forms: Mapped[list[Form]] = relationship(
-    #     "Form", back_populates="user", cascade="all, delete-orphan"
-    # )
-
-
-# class UserMobile(Base):
-#     __tablename__ = "user_mobiles"
-
-#     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-#     agent_name: Mapped[str] = mapped_column(String(255), nullable=False)
-#     token: Mapped[str] = mapped_column(String(512), unique=True, nullable=False, index=True)
-#     status: Mapped[UserStatus] = mapped_column(
-#         Enum(UserStatus, name="user_status"), default=UserStatus.ACTIVE, nullable=False
-#     )
-
-#     user_id: Mapped[int] = mapped_column(
-#         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-#     )
-
-#     created_at: Mapped[datetime] = mapped_column(
-#         DateTime(timezone=True), server_default=func.now(), nullable=False
-#     )
-#     updated_at: Mapped[datetime] = mapped_column(
-#         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-#     )
-
-#     user: Mapped[User] = relationship("User", back_populates="mobile_agents")
-#     agent_forms: Mapped[list[AgentForm]] = relationship(
-#         "AgentForm", back_populates="user_mobile", cascade="all, delete-orphan"
-#     )
+    agents: Mapped[list["Agent"]] = relationship(
+        "Agent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )

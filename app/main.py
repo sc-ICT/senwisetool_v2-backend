@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.routes import (
+    agents,
     auth,
     file_system,
     form_builder,
@@ -158,3 +159,7 @@ app.include_router(form_question_dependencies_router)
 
 # ─── ROUTES DU FORM IMPORT QUESTIONS ───────────────────────────────────────────────────────────
 app.include_router(form_import.router)
+
+
+# ─── ROUTES DES AGENTS ───────────────────────────────────────────────────────────
+app.include_router(agents.router)

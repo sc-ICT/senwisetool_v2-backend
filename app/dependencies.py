@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import AsyncSessionLocal, get_db
 from app.models.user import User
+from app.services.agent import AgentService
 from app.services.archive import ArchiveService
 from app.services.file_system import FileSystemService
 from app.services.form_builder.form_definition import FormDefinitionService
@@ -185,6 +186,14 @@ def get_project_service(
     return ProjectService(
         session=session,
         file_system=file_system,
+    )
+
+
+def get_agent_service(
+    session: AsyncSession = Depends(get_db),
+) -> AgentService:
+    return AgentService(
+        session=session,
     )
 
 

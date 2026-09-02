@@ -15,6 +15,17 @@ class UserStatus(str, enum.Enum):
     DEACTIVATED = "DEACTIVATED"
 
 
+class AgentRole(str, enum.Enum):
+    COLLECTOR = "COLLECTOR"
+    INSPECTOR = "INSPECTOR"
+
+
+class AgentStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    DEACTIVATED = "DEACTIVATED"
+
+
 class FileNodeType(str, enum.Enum):
     FOLDER = "FOLDER"
     FILE = "FILE"

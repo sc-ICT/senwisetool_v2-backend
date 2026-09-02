@@ -1,3 +1,4 @@
+from app.models.agent import Agent
 from app.models.file_node import FileNode
 from app.models.form_builder.project import Project
 from app.models.form_builder.question_definition import (
@@ -13,6 +14,7 @@ from app.models.user import User
 
 __all__ = [
     "User",
+    "Agent",
     "FileNode",
     "Project",
     "QuestionDefinition",
