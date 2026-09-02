@@ -1,0 +1,171 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.dependencies import (
+    CurrentUser,
+    get_formulaire_question_dependency_service,
+)
+from app.models.user import User
+from app.schemas.common import (
+    ApiResponse,
+    ok,
+)
+from app.schemas.form_builder.formulaire_question_dependency import (
+    FormulaireQuestionDependencyCreate,
+    FormulaireQuestionDependencyResponse,
+)
+from app.services.form_builder.formulaire_question_dependency import (
+    FormulaireQuestionDependencyService,
+)
+
+router = APIRouter(
+    prefix=(
+        "/formulaires/{formulaire_id}"
+        "/sections/{section_id}"
+        "/questions/{target_question_id}"
+        "/dependencies"
+    ),
+    tags=["Formulaire Question Dependencies"],
+)
+
+
+@router.get(
+    "",
+    response_model=ApiResponse[list[FormulaireQuestionDependencyResponse]],
+)
+async def list_dependencies(
+    formulaire_id: int,
+    section_id: int,
+    target_question_id: int,
+    service: FormulaireQuestionDependencyService = Depends(
+        get_formulaire_question_dependency_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        items = await service.list(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            target_question_id=target_question_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Dépendances récupérées avec succès.",
+            data=[FormulaireQuestionDependencyResponse.model_validate(item) for item in items],
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[FormulaireQuestionDependencyResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_dependency(
+    formulaire_id: int,
+    section_id: int,
+    target_question_id: int,
+    data: FormulaireQuestionDependencyCreate,
+    service: FormulaireQuestionDependencyService = Depends(
+        get_formulaire_question_dependency_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        dependency = await service.create(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            target_question_id=target_question_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Dépendance créée avec succès.",
+            data=FormulaireQuestionDependencyResponse.model_validate(dependency),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.put(
+    "/{dependency_id}",
+    response_model=ApiResponse[FormulaireQuestionDependencyResponse],
+)
+async def update_dependency(
+    formulaire_id: int,
+    section_id: int,
+    target_question_id: int,
+    dependency_id: int,
+    data: FormulaireQuestionDependencyCreate,
+    service: FormulaireQuestionDependencyService = Depends(
+        get_formulaire_question_dependency_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        dependency = await service.update(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            target_question_id=target_question_id,
+            dependency_id=dependency_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Dépendance modifiée avec succès.",
+            data=FormulaireQuestionDependencyResponse.model_validate(
+                dependency,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete(
+    "/{dependency_id}",
+    response_model=ApiResponse[None],
+)
+async def delete_dependency(
+    formulaire_id: int,
+    section_id: int,
+    target_question_id: int,
+    dependency_id: int,
+    service: FormulaireQuestionDependencyService = Depends(
+        get_formulaire_question_dependency_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        await service.delete(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            target_question_id=target_question_id,
+            dependency_id=dependency_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Dépendance supprimée avec succès.",
+            data=None,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

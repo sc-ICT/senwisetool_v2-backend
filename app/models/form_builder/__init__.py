@@ -3,12 +3,13 @@ Modèles du moteur de construction de formulaires
 et de collecte terrain.
 """
 
-from app.models.form_builder.project_definition import ProjectDefinition
-from app.models.form_builder.project_question import ProjectQuestion
-from app.models.form_builder.project_question_dependency import (
-    ProjectQuestionDependency,
+from app.models.form_builder.form_definition import FormDefinition
+from app.models.form_builder.form_question import FormQuestion
+from app.models.form_builder.form_question_dependency import (
+    FormQuestionDependency,
 )
-from app.models.form_builder.project_section import ProjectSection
+from app.models.form_builder.form_section import FormSection
+from app.models.form_builder.project import Project
 from app.models.form_builder.question_definition import QuestionDefinition
 from app.models.form_builder.question_group import QuestionGroup
 from app.models.form_builder.question_group_member import QuestionGroupMember
@@ -28,14 +29,15 @@ from .dynamic_value import DynamicValue
 
 __all__ = [
     "QuestionDefinition",
+    "Project",
     "QuestionVersion",
     "QuestionOption",
     "QuestionGroup",
     "QuestionGroupMember",
-    "ProjectDefinition",
-    "ProjectSection",
-    "ProjectQuestion",
-    "ProjectQuestionDependency",
+    "FormDefinition",
+    "FormSection",
+    "FormQuestion",
+    "FormQuestionDependency",
     "DependencyAction",
     "DependencyCondition",
     "DependencyRule",

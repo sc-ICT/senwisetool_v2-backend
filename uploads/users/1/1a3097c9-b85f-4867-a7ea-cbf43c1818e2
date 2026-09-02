@@ -1,0 +1,187 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.dependencies import (
+    CurrentUser,
+    get_formulaire_section_service,
+)
+from app.models.user import User
+from app.schemas.common import ApiResponse, ok
+from app.schemas.form_builder.formulaire_section import (
+    FormulaireSectionCreate,
+    FormulaireSectionListResponse,
+    FormulaireSectionReorder,
+    FormulaireSectionResponse,
+    FormulaireSectionUpdate,
+)
+from app.services.form_builder.formulaire_section import (
+    FormulaireSectionService,
+)
+
+router = APIRouter(
+    prefix="/formulaires/{formulaire_id}/sections",
+    tags=["Formulaire Sections"],
+)
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[FormulaireSectionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_formulaire_section(
+    formulaire_id: int,
+    data: FormulaireSectionCreate,
+    service: FormulaireSectionService = Depends(
+        get_formulaire_section_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        section = await service.create(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Section créée avec succès.",
+            data=FormulaireSectionResponse.model_validate(
+                section,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get("", response_model=ApiResponse[FormulaireSectionListResponse])
+async def list_formulaire_sections(
+    formulaire_id: int,
+    service: FormulaireSectionService = Depends(
+        get_formulaire_section_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        sections = await service.list(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Sections récupérées avec succès.",
+            data=FormulaireSectionListResponse(
+                items=[
+                    FormulaireSectionResponse.model_validate(
+                        section,
+                    )
+                    for section in sections
+                ],
+                count=len(sections),
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch("/reorder", response_model=ApiResponse[FormulaireSectionListResponse])
+async def reorder_formulaire_sections(
+    formulaire_id: int,
+    data: FormulaireSectionReorder,
+    service: FormulaireSectionService = Depends(
+        get_formulaire_section_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        sections = await service.reorder(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+            ordered_section_ids=data.ordered_section_ids,
+        )
+
+        return ok(
+            message="Sections réordonnées avec succès.",
+            data=FormulaireSectionListResponse(
+                items=[
+                    FormulaireSectionResponse.model_validate(
+                        section,
+                    )
+                    for section in sections
+                ],
+                count=len(sections),
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch("/{section_id}", response_model=ApiResponse[FormulaireSectionResponse])
+async def update_formulaire_section(
+    formulaire_id: int,
+    section_id: int,
+    data: FormulaireSectionUpdate,
+    service: FormulaireSectionService = Depends(
+        get_formulaire_section_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        section = await service.update(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Section modifiée avec succès.",
+            data=FormulaireSectionResponse.model_validate(
+                section,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete("/{section_id}", response_model=ApiResponse[None])
+async def delete_formulaire_section(
+    formulaire_id: int,
+    section_id: int,
+    service: FormulaireSectionService = Depends(
+        get_formulaire_section_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        await service.delete(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Section supprimée avec succès.",
+            data=None,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

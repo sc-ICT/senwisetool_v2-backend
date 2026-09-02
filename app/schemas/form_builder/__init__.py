@@ -2,32 +2,32 @@
 Schemas Pydantic du moteur Form Builder.
 """
 
-from app.schemas.form_builder.project_definition import (
-    ProjectDefinitionCreate,
-    ProjectDefinitionListResponse,
-    ProjectDefinitionResponse,
-    ProjectDefinitionUpdate,
+from app.schemas.form_builder.form_definition import (
+    FormDefinitionCreate,
+    FormDefinitionListResponse,
+    FormDefinitionResponse,
+    FormDefinitionUpdate,
 )
-from app.schemas.form_builder.project_question import (
-    ProjectQuestionCreate,
-    ProjectQuestionListResponse,
-    ProjectQuestionResponse,
-    ProjectQuestionUpdate,
+from app.schemas.form_builder.form_question import (
+    FormQuestionCreate,
+    FormQuestionListResponse,
+    FormQuestionResponse,
+    FormQuestionUpdate,
 )
-from app.schemas.form_builder.project_question_config import (
-    ProjectQuestionConfig,
-    ProjectQuestionDisplayConfig,
-    ProjectQuestionValidationConfig,
+from app.schemas.form_builder.form_question_config import (
+    FormQuestionConfig,
+    FormQuestionDisplayConfig,
+    FormQuestionValidationConfig,
 )
-from app.schemas.form_builder.project_question_dependency import (
-    ProjectQuestionDependencyCreate,
-    ProjectQuestionDependencyResponse,
+from app.schemas.form_builder.form_question_dependency import (
+    FormQuestionDependencyCreate,
+    FormQuestionDependencyResponse,
 )
-from app.schemas.form_builder.project_section import (
-    ProjectSectionCreate,
-    ProjectSectionListResponse,
-    ProjectSectionResponse,
-    ProjectSectionUpdate,
+from app.schemas.form_builder.form_section import (
+    FormSectionCreate,
+    FormSectionListResponse,
+    FormSectionResponse,
+    FormSectionUpdate,
 )
 from app.schemas.form_builder.question_definition import (
     QuestionCreateRequest,
@@ -79,21 +79,21 @@ __all__ = [
     "QuestionGroupUpdate",
     "QuestionGroupDetailResponse",
     "QuestionGroupQuestionResponse",
-    "ProjectDefinitionCreate",
-    "ProjectDefinitionListResponse",
-    "ProjectDefinitionResponse",
-    "ProjectDefinitionUpdate",
-    "ProjectSectionCreate",
-    "ProjectSectionListResponse",
-    "ProjectSectionResponse",
-    "ProjectSectionUpdate",
-    "ProjectQuestionCreate",
-    "ProjectQuestionListResponse",
-    "ProjectQuestionResponse",
-    "ProjectQuestionUpdate",
-    "ProjectQuestionConfig",
-    "ProjectQuestionDisplayConfig",
-    "ProjectQuestionValidationConfig",
-    "ProjectQuestionDependencyCreate",
-    "ProjectQuestionDependencyResponse",
+    "FormDefinitionCreate",
+    "FormDefinitionListResponse",
+    "FormDefinitionResponse",
+    "FormDefinitionUpdate",
+    "FormSectionCreate",
+    "FormSectionListResponse",
+    "FormSectionResponse",
+    "FormSectionUpdate",
+    "FormQuestionCreate",
+    "FormQuestionListResponse",
+    "FormQuestionResponse",
+    "FormQuestionUpdate",
+    "FormQuestionConfig",
+    "FormQuestionDisplayConfig",
+    "FormQuestionValidationConfig",
+    "FormQuestionDependencyCreate",
+    "FormQuestionDependencyResponse",
 ]

@@ -11,12 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.form_builder.enums import QuestionType
-from app.models.form_builder.project_definition import ProjectDefinition
-from app.models.form_builder.project_question import ProjectQuestion
-from app.models.form_builder.project_question_dependency import (
-    ProjectQuestionDependency,
+from app.models.form_builder.form_definition import FormDefinition
+from app.models.form_builder.form_question import FormQuestion
+from app.models.form_builder.form_question_dependency import (
+    FormQuestionDependency,
 )
-from app.models.form_builder.project_section import ProjectSection
+from app.models.form_builder.form_section import FormSection
 from app.models.form_builder.question_definition import QuestionDefinition
 from app.models.form_builder.question_group import QuestionGroup
 from app.schemas.form_builder.form_import import (
@@ -91,19 +91,19 @@ class FormImportService:
         return False
 
     # ============================================================
-    # PROJET
+    # FORMET
     # ============================================================
 
-    async def _get_project(
+    async def _get_form(
         self,
         *,
-        project_id: int,
+        form_id: int,
         user_id: int,
-    ) -> ProjectDefinition | None:
+    ) -> FormDefinition | None:
         result = await self.session.execute(
-            select(ProjectDefinition).where(
-                ProjectDefinition.id == project_id,
-                ProjectDefinition.created_by == user_id,
+            select(FormDefinition).where(
+                FormDefinition.id == form_id,
+                FormDefinition.created_by == user_id,
             )
         )
 
@@ -367,20 +367,20 @@ class FormImportService:
     async def build_plan(
         self,
         *,
-        project_id: int,
+        form_id: int,
         user_id: int,
         file_bytes: bytes,
     ) -> tuple[
         FormImportPlan | None,
         FormImportResult,
     ]:
-        project = await self._get_project(
-            project_id=project_id,
+        form = await self._get_form(
+            form_id=form_id,
             user_id=user_id,
         )
 
-        if project is None:
-            raise ValueError("Projet introuvable.")
+        if form is None:
+            raise ValueError("Formulaire introuvable.")
 
         # ========================================================
         # PARSING EXCEL
@@ -869,7 +869,7 @@ class FormImportService:
         )
 
         normalized_question.setdefault(
-            "project",
+            "form",
             {},
         )
 
@@ -884,17 +884,17 @@ class FormImportService:
 
         return normalized
 
-    async def _find_project_section(
+    async def _find_form_section(
         self,
         *,
-        project_id: int,
+        form_id: int,
         user_id: int,
         name: str,
-    ) -> ProjectSection | None:
+    ) -> FormSection | None:
         result = await self.session.execute(
-            select(ProjectSection).where(
-                ProjectSection.project_id == project_id,
-                ProjectSection.name == name,
+            select(FormSection).where(
+                FormSection.form_id == form_id,
+                FormSection.name == name,
             )
         )
 
@@ -904,7 +904,7 @@ class FormImportService:
         self,
         *,
         plan: FormImportPlan,
-        project_id: int,
+        form_id: int,
         user_id: int,
     ) -> FormImportResult:
         """
@@ -921,22 +921,22 @@ class FormImportService:
         from app.models.form_builder.question_version import (
             QuestionVersion,
         )
-        from app.schemas.form_builder.project_question import (
-            ProjectQuestionCreate,
+        from app.schemas.form_builder.form_question import (
+            FormQuestionCreate,
         )
-        from app.schemas.form_builder.project_question_config import (
-            ProjectQuestionConfig,
+        from app.schemas.form_builder.form_question_config import (
+            FormQuestionConfig,
         )
-        from app.schemas.form_builder.project_question_dependency import (
+        from app.schemas.form_builder.form_question_dependency import (
             DependencyAction,
             DependencyComparisonValue,
             DependencyCondition,
             DependencyConditionGroup,
-            ProjectQuestionDependencyCreate,
+            FormQuestionDependencyCreate,
         )
-        from app.schemas.form_builder.project_section import (
-            ProjectSectionConfig,
-            ProjectSectionCreate,
+        from app.schemas.form_builder.form_section import (
+            FormSectionConfig,
+            FormSectionCreate,
         )
         from app.schemas.form_builder.question_definition import (
             QuestionDefinitionCreate,
@@ -948,14 +948,14 @@ class FormImportService:
             QuestionOptionCreate,
             QuestionVersionCreate,
         )
-        from app.services.form_builder.project_question import (
-            ProjectQuestionService,
+        from app.services.form_builder.form_question import (
+            FormQuestionService,
         )
-        from app.services.form_builder.project_question_dependency import (
-            ProjectQuestionDependencyService,
+        from app.services.form_builder.form_question_dependency import (
+            FormQuestionDependencyService,
         )
-        from app.services.form_builder.project_section import (
-            ProjectSectionService,
+        from app.services.form_builder.form_section import (
+            FormSectionService,
         )
         from app.services.form_builder.question_bank import (
             QuestionBankService,
@@ -976,15 +976,15 @@ class FormImportService:
             self.session,
         )
 
-        section_service = ProjectSectionService(
+        section_service = FormSectionService(
             self.session,
         )
 
-        project_question_service = ProjectQuestionService(
+        form_question_service = FormQuestionService(
             self.session,
         )
 
-        dependency_service = ProjectQuestionDependencyService(
+        dependency_service = FormQuestionDependencyService(
             self.session,
         )
 
@@ -999,7 +999,7 @@ class FormImportService:
 
         sections_by_name: dict[
             str,
-            ProjectSection,
+            FormSection,
         ] = {}
 
         groups_by_name: dict[
@@ -1007,9 +1007,9 @@ class FormImportService:
             QuestionGroup,
         ] = {}
 
-        project_questions_by_code: dict[
+        form_questions_by_code: dict[
             str,
-            ProjectQuestion,
+            FormQuestion,
         ] = {}
 
         # ============================================================
@@ -1028,8 +1028,8 @@ class FormImportService:
         created_dependencies = 0
         reused_dependencies = 0
 
-        created_project_questions = 0
-        reused_project_questions = 0
+        created_form_questions = 0
+        reused_form_questions = 0
 
         # ============================================================
         # 1. GROUPES
@@ -1078,8 +1078,8 @@ class FormImportService:
             if not name:
                 continue
 
-            existing_section = await self._find_project_section(
-                project_id=project_id,
+            existing_section = await self._find_form_section(
+                form_id=form_id,
                 user_id=user_id,
                 name=name,
             )
@@ -1097,14 +1097,14 @@ class FormImportService:
             )
 
             section = await section_service.create(
-                project_id=project_id,
+                form_id=form_id,
                 user_id=user_id,
-                data=ProjectSectionCreate(
+                data=FormSectionCreate(
                     name=name,
                     description=section_data.get(
                         "description",
                     ),
-                    config=ProjectSectionConfig.model_validate(
+                    config=FormSectionConfig.model_validate(
                         section_config,
                     ),
                 ),
@@ -1343,8 +1343,8 @@ class FormImportService:
 
             if section is None:
 
-                section = await self._find_project_section(
-                    project_id=project_id,
+                section = await self._find_form_section(
+                    form_id=form_id,
                     user_id=user_id,
                     name=section_name,
                 )
@@ -1352,9 +1352,9 @@ class FormImportService:
                 if section is None:
 
                     section = await section_service.create(
-                        project_id=project_id,
+                        form_id=form_id,
                         user_id=user_id,
-                        data=ProjectSectionCreate(
+                        data=FormSectionCreate(
                             name=section_name,
                         ),
                     )
@@ -1387,73 +1387,73 @@ class FormImportService:
                 raise ValueError(f"La question « {code} » " "ne possède aucune version.")
 
             # ========================================================
-            # 7. CONFIGURATION PROJET
+            # 7. CONFIGURATION FORMET
             # ========================================================
 
-            project_question_data = params.get(
-                "project_question",
+            form_question_data = params.get(
+                "form_question",
                 {},
             )
 
             if not isinstance(
-                project_question_data,
+                form_question_data,
                 dict,
             ):
-                project_question_data = {}
+                form_question_data = {}
 
-            project_config = project_question_data.get(
+            form_config = form_question_data.get(
                 "config",
                 {},
             )
 
             if not isinstance(
-                project_config,
+                form_config,
                 dict,
             ):
-                project_config = {}
+                form_config = {}
 
-            project_question_config = ProjectQuestionConfig.model_validate(
-                project_config,
+            form_question_config = FormQuestionConfig.model_validate(
+                form_config,
             )
 
             # ========================================================
             # 8. AJOUT AU FORMULAIRE
             # ========================================================
 
-            existing_project_question_result = await self.session.execute(
-                select(ProjectQuestion)
+            existing_form_question_result = await self.session.execute(
+                select(FormQuestion)
                 .where(
-                    ProjectQuestion.project_id == project_id,
-                    ProjectQuestion.section_id == section.id,
-                    ProjectQuestion.question_definition_id == question.id,
+                    FormQuestion.form_id == form_id,
+                    FormQuestion.section_id == section.id,
+                    FormQuestion.question_definition_id == question.id,
                 )
                 .limit(1)
             )
 
-            project_question = existing_project_question_result.scalar_one_or_none()
+            form_question = existing_form_question_result.scalar_one_or_none()
 
-            if project_question is None:
+            if form_question is None:
 
-                if project_question is None:
+                if form_question is None:
 
-                    project_question = await project_question_service.create(
-                        project_id=project_id,
+                    form_question = await form_question_service.create(
+                        form_id=form_id,
                         section_id=section.id,
                         user_id=user_id,
-                        data=ProjectQuestionCreate(
+                        data=FormQuestionCreate(
                             question_definition_id=question.id,
                             question_version_id=version.id,
-                            config=project_question_config,
+                            config=form_question_config,
                         ),
                     )
 
-                    created_project_questions += 1
+                    created_form_questions += 1
 
                 else:
 
-                    reused_project_questions += 1
+                    reused_form_questions += 1
 
-                project_questions_by_code[code] = project_question
+                form_questions_by_code[code] = form_question
 
         # ============================================================
         # 9. DÉPENDANCES
@@ -1462,7 +1462,7 @@ class FormImportService:
         def resolve_question_id(
             code: str,
         ) -> int:
-            question = project_questions_by_code.get(
+            question = form_questions_by_code.get(
                 code,
             )
 
@@ -1656,11 +1656,11 @@ class FormImportService:
 
             target_code = dependency_data["target_code"]
 
-            target_project_question = project_questions_by_code.get(
+            target_form_question = form_questions_by_code.get(
                 target_code,
             )
 
-            if target_project_question is None:
+            if target_form_question is None:
                 raise ValueError(
                     f"La question cible « {target_code} » " "n'est pas présente dans le formulaire."
                 )
@@ -1677,7 +1677,7 @@ class FormImportService:
                     f"La dépendance de « {target_code} » " "ne possède pas de condition valide."
                 )
 
-            dependency_schema = ProjectQuestionDependencyCreate(
+            dependency_schema = FormQuestionDependencyCreate(
                 condition=convert_condition_group(
                     condition_data,
                 ),
@@ -1700,9 +1700,9 @@ class FormImportService:
             # --------------------------------------------------------
 
             existing_dependencies = await dependency_service.list(
-                project_id=project_id,
-                section_id=target_project_question.section_id,
-                target_question_id=target_project_question.id,
+                form_id=form_id,
+                section_id=target_form_question.section_id,
+                target_question_id=target_form_question.id,
                 user_id=user_id,
             )
 
@@ -1735,9 +1735,9 @@ class FormImportService:
             else:
 
                 await dependency_service.create(
-                    project_id=project_id,
-                    section_id=target_project_question.section_id,
-                    target_question_id=target_project_question.id,
+                    form_id=form_id,
+                    section_id=target_form_question.section_id,
+                    target_question_id=target_form_question.id,
                     user_id=user_id,
                     data=dependency_schema,
                 )
@@ -1764,7 +1764,7 @@ class FormImportService:
             reused_groups=reused_groups,
             created_dependencies=created_dependencies,
             reused_dependencies=reused_dependencies,
-            created_project_questions=created_project_questions,
-            reused_project_questions=reused_project_questions,
+            created_form_questions=created_form_questions,
+            reused_form_questions=reused_form_questions,
             issues=[],
         )

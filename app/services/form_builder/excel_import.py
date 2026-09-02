@@ -34,9 +34,9 @@ class ExcelImportQuestionVersion(BaseModel):
     )
 
 
-class ExcelImportQuestionProjectConfig(BaseModel):
+class ExcelImportQuestionFormConfig(BaseModel):
     """
-    Paramètres liés à l'ajout de la question au projet/formulaire.
+    Paramètres liés à l'ajout de la question au formulaire.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -69,8 +69,8 @@ class ExcelImportQuestion(BaseModel):
 
     version: ExcelImportQuestionVersion
 
-    project: ExcelImportQuestionProjectConfig = Field(
-        default_factory=ExcelImportQuestionProjectConfig,
+    form: ExcelImportQuestionFormConfig = Field(
+        default_factory=ExcelImportQuestionFormConfig,
     )
 
 
@@ -172,7 +172,7 @@ class ExcelImportQuestionParameters(BaseModel):
 
         - création de la question
         - configuration de sa version
-        - ajout au projet
+        - ajout au formulaire
         - groupe
         - dépendances
     """

@@ -25,8 +25,8 @@ class FormImportResult(BaseModel):
     created_questions: int = 0
     reused_questions: int = 0
 
-    created_project_questions: int = 0
-    reused_project_questions: int = 0
+    created_form_questions: int = 0
+    reused_form_questions: int = 0
 
     created_sections: int = 0
     reused_sections: int = 0

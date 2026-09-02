@@ -1,0 +1,1770 @@
+from __future__ import annotations
+
+import json
+import re
+from collections import defaultdict
+from typing import Any
+
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.form_builder.enums import QuestionType
+from app.models.form_builder.formulaire_definition import FormulaireDefinition
+from app.models.form_builder.formulaire_question import FormulaireQuestion
+from app.models.form_builder.formulaire_question_dependency import (
+    FormulaireQuestionDependency,
+)
+from app.models.form_builder.formulaire_section import FormulaireSection
+from app.models.form_builder.question_definition import QuestionDefinition
+from app.models.form_builder.question_group import QuestionGroup
+from app.schemas.form_builder.form_import import (
+    FormImportIssue,
+    FormImportPlan,
+    FormImportResult,
+)
+from app.services.form_builder.excel_import_parser import (
+    ParsedSheet,
+    parse_workbook,
+)
+from app.services.form_builder.excel_import_references import (
+    collect_column_references,
+    resolve_column_references,
+)
+
+
+class FormImportService:
+    """
+    Importateur de structure de formulaire depuis Excel.
+
+    IMPORTANT :
+
+    Cette classe sépare volontairement :
+
+        1. lecture Excel
+        2. validation
+        3. construction du plan
+        4. exécution
+
+    La phase de validation ne crée aucun objet SQL.
+    """
+
+    def __init__(
+        self,
+        session: AsyncSession,
+    ) -> None:
+        self.session = session
+
+    # ============================================================
+    # UTILITAIRES
+    # ============================================================
+
+    @staticmethod
+    def _cell_value(value: Any) -> Any:
+        if value is None:
+            return None
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value == "":
+                return None
+
+        return value
+
+    @staticmethod
+    def _is_empty_value(
+        value: Any,
+    ) -> bool:
+        """
+        Détermine si une valeur Excel doit être considérée
+        comme vide.
+        """
+
+        if value is None:
+            return True
+
+        if isinstance(value, str) and not value.strip():
+            return True
+
+        return False
+
+    # ============================================================
+    # FORMULAIRE
+    # ============================================================
+
+    async def _get_formulaire(
+        self,
+        *,
+        formulaire_id: int,
+        user_id: int,
+    ) -> FormulaireDefinition | None:
+        result = await self.session.execute(
+            select(FormulaireDefinition).where(
+                FormulaireDefinition.id == formulaire_id,
+                FormulaireDefinition.created_by == user_id,
+            )
+        )
+
+        return result.scalar_one_or_none()
+
+    # ============================================================
+    # VALIDATION D'UNE QUESTION
+    # ============================================================
+
+    @staticmethod
+    def _validate_question_params(
+        *,
+        sheet_name: str,
+        column: dict[str, Any],
+        issues: list[FormImportIssue],
+    ) -> None:
+        params = column["params"]
+
+        question = params.get("question")
+
+        if not isinstance(question, dict):
+            issues.append(
+                FormImportIssue(
+                    sheet=sheet_name,
+                    column=column["letter"],
+                    row=2,
+                    message=("La clé « question » est obligatoire " "dans les paramètres."),
+                )
+            )
+            return
+
+        code = question.get("code")
+        name = question.get("name")
+        version = question.get("version")
+
+        if not isinstance(code, str) or not code.strip():
+            issues.append(
+                FormImportIssue(
+                    sheet=sheet_name,
+                    column=column["letter"],
+                    row=2,
+                    message=("question.code est obligatoire."),
+                )
+            )
+
+        if not isinstance(name, str) or not name.strip():
+            issues.append(
+                FormImportIssue(
+                    sheet=sheet_name,
+                    column=column["letter"],
+                    row=2,
+                    message=("question.name est obligatoire."),
+                )
+            )
+
+        if not isinstance(version, dict):
+            issues.append(
+                FormImportIssue(
+                    sheet=sheet_name,
+                    column=column["letter"],
+                    row=2,
+                    message=("question.version est obligatoire."),
+                )
+            )
+            return
+
+        question_type = version.get("question_type")
+
+        valid_types = {item.value for item in QuestionType}
+
+        if question_type not in valid_types:
+            issues.append(
+                FormImportIssue(
+                    sheet=sheet_name,
+                    column=column["letter"],
+                    row=2,
+                    message=("Type de question invalide : " f"{question_type!r}."),
+                )
+            )
+
+        label = version.get("label")
+
+        if not isinstance(label, str) or not label.strip():
+            issues.append(
+                FormImportIssue(
+                    sheet=sheet_name,
+                    column=column["letter"],
+                    row=2,
+                    message=("question.version.label est obligatoire."),
+                )
+            )
+
+    # ============================================================
+    # VALIDATION DES RÉFÉRENCES COL(...)
+    # ============================================================
+
+    @staticmethod
+    def _validate_references(
+        *,
+        sheets: list[ParsedSheet],
+        issues: list[FormImportIssue],
+    ) -> None:
+        """
+        Vérifie toutes les références col(...) présentes
+        dans les paramètres de chaque colonne-question.
+
+        Cette phase vérifie uniquement l'existence des colonnes.
+        La vérification des cellules vides sera effectuée
+        pour chaque ligne.
+        """
+
+        for sheet in sheets:
+
+            available_columns = {column.name for column in sheet.columns}
+
+            for column in sheet.question_columns:
+
+                params = column.parameters or {}
+
+                references = collect_column_references(
+                    params,
+                )
+
+                for reference in references:
+
+                    if reference not in available_columns:
+
+                        issues.append(
+                            FormImportIssue(
+                                sheet=sheet.name,
+                                column=column.letter,
+                                row=2,
+                                message=(
+                                    f"La référence "
+                                    f"col({reference}) "
+                                    "pointe vers une colonne "
+                                    "inexistante dans cette feuille."
+                                ),
+                            )
+                        )
+
+    @staticmethod
+    def _validate_row_references(
+        *,
+        sheets: list[ParsedSheet],
+        issues: list[FormImportIssue],
+    ) -> None:
+        """
+        Vérifie que toutes les références col(...) utilisées
+        dans les paramètres possèdent une valeur pour chaque
+        ligne de données.
+
+        Cette validation est effectuée avant toute écriture
+        en base.
+        """
+
+        for sheet in sheets:
+
+            for column in sheet.question_columns:
+
+                params = column.parameters or {}
+
+                references = collect_column_references(
+                    params,
+                )
+
+                if not references:
+                    continue
+
+                for row in sheet.rows:
+
+                    for reference in references:
+
+                        # -------------------------------------------------
+                        # La colonne n'existe pas.
+                        #
+                        # Cette erreur est déjà détectée par
+                        # _validate_references().
+                        # -------------------------------------------------
+
+                        if reference not in row.values:
+                            continue
+
+                        value = row.values.get(
+                            reference,
+                        )
+
+                        # -------------------------------------------------
+                        # Cellule vide
+                        # -------------------------------------------------
+
+                        if value is None:
+                            issues.append(
+                                FormImportIssue(
+                                    sheet=sheet.name,
+                                    column=column.letter,
+                                    row=row.row_number,
+                                    message=(
+                                        f"La référence "
+                                        f"col({reference}) "
+                                        "pointe vers une cellule vide."
+                                    ),
+                                )
+                            )
+
+                            continue
+
+                        if isinstance(value, str) and not value.strip():
+                            issues.append(
+                                FormImportIssue(
+                                    sheet=sheet.name,
+                                    column=column.letter,
+                                    row=row.row_number,
+                                    message=(
+                                        f"La référence "
+                                        f"col({reference}) "
+                                        "pointe vers une cellule vide."
+                                    ),
+                                )
+                            )
+
+    @staticmethod
+    def _resolve_parameters_for_row(
+        *,
+        parameters: dict[str, Any],
+        row_values: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Résout toutes les références col(...) présentes
+        dans les paramètres d'une question pour une ligne donnée.
+
+        Exemple :
+
+            parameters = {
+                "name": "col(Nom planteur)",
+                "code": "col(Code planteur)",
+            }
+
+            row_values = {
+                "Nom planteur": "Jean",
+                "Code planteur": "P001",
+            }
+
+        retourne :
+
+            {
+                "name": "Jean",
+                "code": "P001",
+            }
+        """
+
+        return resolve_column_references(
+            parameters,
+            row_values=row_values,
+        )
+
+    # ============================================================
+    # CONSTRUCTION DU PLAN
+    # ============================================================
+
+    async def build_plan(
+        self,
+        *,
+        formulaire_id: int,
+        user_id: int,
+        file_bytes: bytes,
+    ) -> tuple[
+        FormImportPlan | None,
+        FormImportResult,
+    ]:
+        formulaire = await self._get_formulaire(
+            formulaire_id=formulaire_id,
+            user_id=user_id,
+        )
+
+        if formulaire is None:
+            raise ValueError("Formulaire introuvable.")
+
+        # ========================================================
+        # PARSING EXCEL
+        # ========================================================
+
+        try:
+            parsed_sheets = parse_workbook(
+                file_bytes,
+            )
+
+        except ValueError as exc:
+            issue = FormImportIssue(
+                message=str(exc),
+            )
+
+            result = FormImportResult(
+                success=False,
+                message="Le fichier Excel est invalide.",
+                issues=[issue],
+            )
+
+            return None, result
+
+        # ========================================================
+        # VALIDATION DES RÉFÉRENCES
+        # ========================================================
+
+        issues: list[FormImportIssue] = []
+
+        self._validate_references(
+            sheets=parsed_sheets,
+            issues=issues,
+        )
+
+        self._validate_row_references(
+            sheets=parsed_sheets,
+            issues=issues,
+        )
+
+        # ========================================================
+        # ADAPTATION DES DONNÉES PARSÉES
+        # ========================================================
+
+        sheet_data: list[dict[str, Any]] = [
+            {
+                "name": sheet.name,
+                "columns": [
+                    {
+                        "index": column.index,
+                        "letter": column.letter,
+                        "header": column.name,
+                        "is_question": column.is_question,
+                        "params": column.parameters or {},
+                    }
+                    for column in sheet.columns
+                ],
+                "rows": [
+                    {
+                        "row": row.row_number,
+                        "values": row.values,
+                    }
+                    for row in sheet.rows
+                ],
+            }
+            for sheet in parsed_sheets
+        ]
+
+        # ========================================================
+        # CONSTRUCTION DU PLAN
+        # ========================================================
+
+        questions: list[dict[str, Any]] = []
+        sections: list[dict[str, Any]] = []
+        groups: list[dict[str, Any]] = []
+        dependencies: list[dict[str, Any]] = []
+
+        question_codes: set[str] = set()
+        section_names: set[str] = set()
+        group_names: set[str] = set()
+
+        question_context_by_code: dict[
+            str,
+            dict[str, Any],
+        ] = {}
+
+        # ========================================================
+        # PARCOURS DES FEUILLES
+        # ========================================================
+
+        for sheet in sheet_data:
+
+            default_section_name = sheet["name"].strip()
+
+            if not default_section_name:
+                continue
+
+            # ----------------------------------------------------
+            # SECTION PAR DÉFAUT DE LA FEUILLE
+            # ----------------------------------------------------
+
+            if default_section_name not in section_names:
+
+                section_names.add(
+                    default_section_name,
+                )
+
+                sections.append(
+                    {
+                        "name": default_section_name,
+                        "description": None,
+                        "config": {},
+                        "sheet": default_section_name,
+                    }
+                )
+
+            # ----------------------------------------------------
+            # QUESTIONS DE LA FEUILLE
+            # ----------------------------------------------------
+
+            for column in sheet["columns"]:
+
+                # Une colonne dont la deuxième ligne est vide
+                # n'est pas une question.
+                if not column["is_question"]:
+                    continue
+
+                # ------------------------------------------------
+                # VALIDATION DE LA CONFIGURATION
+                # ------------------------------------------------
+
+                self._validate_question_params(
+                    sheet_name=sheet["name"],
+                    column=column,
+                    issues=issues,
+                )
+
+                # ------------------------------------------------
+                # NORMALISATION
+                # ------------------------------------------------
+
+                params = self._normalize_question_parameters(
+                    parameters=column["params"],
+                )
+
+                question = params.get(
+                    "question",
+                    {},
+                )
+
+                if not isinstance(question, dict):
+                    issues.append(
+                        FormImportIssue(
+                            sheet=sheet["name"],
+                            column=column["letter"],
+                            row=2,
+                            message=("La propriété 'question' doit être " "un objet JSON."),
+                        )
+                    )
+                    continue
+
+                # ------------------------------------------------
+                # CODE DE LA QUESTION
+                # ------------------------------------------------
+
+                code = question.get(
+                    "code",
+                )
+
+                if not isinstance(code, str):
+                    continue
+
+                code = code.strip()
+
+                if not code:
+                    continue
+
+                # ------------------------------------------------
+                # DÉTECTION DES DOUBLONS
+                # ------------------------------------------------
+
+                if code in question_codes:
+
+                    issues.append(
+                        FormImportIssue(
+                            sheet=sheet["name"],
+                            column=column["letter"],
+                            row=2,
+                            message=(
+                                f"Le code de question « {code} » "
+                                "est utilisé plusieurs fois "
+                                "dans le fichier."
+                            ),
+                        )
+                    )
+
+                    continue
+
+                question_codes.add(code)
+
+                # ------------------------------------------------
+                # CONTEXTE DE LA QUESTION
+                # ------------------------------------------------
+
+                question_context = {
+                    "sheet": sheet["name"],
+                    "column": column["letter"],
+                    "header": column["header"],
+                    "code": code,
+                    "params": params,
+                    "rows": sheet["rows"],
+                }
+
+                question_context_by_code[code] = question_context
+
+                questions.append(
+                    question_context,
+                )
+
+                # ------------------------------------------------
+                # GROUPE DE LA QUESTION
+                # ------------------------------------------------
+
+                group = question.get(
+                    "group",
+                )
+
+                if isinstance(group, dict):
+
+                    group_name = group.get(
+                        "name",
+                    )
+
+                    group_description = group.get(
+                        "description",
+                    )
+
+                else:
+
+                    group_name = group
+                    group_description = None
+
+                if isinstance(group_name, str):
+
+                    group_name = group_name.strip()
+
+                    if group_name:
+
+                        if group_name not in group_names:
+
+                            group_names.add(
+                                group_name,
+                            )
+
+                            groups.append(
+                                {
+                                    "name": group_name,
+                                    "description": (group_description),
+                                }
+                            )
+
+                # ------------------------------------------------
+                # DÉPENDANCE DE LA QUESTION
+                # ------------------------------------------------
+
+                raw_dependency = params.get(
+                    "dependency",
+                )
+
+                if raw_dependency is not None:
+
+                    if not isinstance(
+                        raw_dependency,
+                        dict,
+                    ):
+                        issues.append(
+                            FormImportIssue(
+                                sheet=sheet["name"],
+                                column=column["letter"],
+                                row=2,
+                                message=("'dependency' doit être " "un objet JSON."),
+                            )
+                        )
+
+                    else:
+
+                        dependencies.append(
+                            {
+                                "sheet": sheet["name"],
+                                "column": column["letter"],
+                                "target_code": code,
+                                "data": raw_dependency,
+                            }
+                        )
+
+        # ========================================================
+        # VALIDATION DES DÉPENDANCES
+        # ========================================================
+        #
+        # IMPORTANT :
+        # Cette validation est volontairement placée APRÈS
+        # le parcours de toutes les feuilles.
+        #
+        # Ainsi une question peut dépendre d'une question
+        # située dans une autre feuille.
+        # ========================================================
+
+        for dependency in dependencies:
+
+            data = dependency["data"]
+
+            source_code = data.get(
+                "source_question_code",
+            )
+
+            if source_code is None:
+                continue
+
+            if not isinstance(
+                source_code,
+                str,
+            ):
+
+                issues.append(
+                    FormImportIssue(
+                        sheet=dependency["sheet"],
+                        column=dependency["column"],
+                        row=2,
+                        message=("'source_question_code' doit être " "une chaîne de caractères."),
+                    )
+                )
+
+                continue
+
+            source_code = source_code.strip()
+
+            if not source_code:
+                issues.append(
+                    FormImportIssue(
+                        sheet=dependency["sheet"],
+                        column=dependency["column"],
+                        row=2,
+                        message=("'source_question_code' " "ne peut pas être vide."),
+                    )
+                )
+
+                continue
+
+            if source_code not in question_context_by_code:
+
+                issues.append(
+                    FormImportIssue(
+                        sheet=dependency["sheet"],
+                        column=dependency["column"],
+                        row=2,
+                        message=(
+                            f"La dépendance de "
+                            f"« {dependency['target_code']} » "
+                            f"référence la question "
+                            f"« {source_code} », "
+                            "mais cette question n'existe "
+                            "pas dans le fichier importé."
+                        ),
+                    )
+                )
+
+        # ========================================================
+        # RÉSULTAT DE LA VALIDATION
+        # ========================================================
+
+        result = FormImportResult(
+            success=not issues,
+            message=(
+                "Le fichier est conforme." if not issues else "Le fichier contient des erreurs."
+            ),
+            sheets=len(sheet_data),
+            questions=len(questions),
+            sections=len(sections),
+            groups=len(groups),
+            dependencies=len(dependencies),
+            issues=issues,
+        )
+
+        # ========================================================
+        # LE FICHIER EST INVALIDE
+        # ========================================================
+
+        if issues:
+            return None, result
+
+        # ========================================================
+        # CONSTRUCTION DU PLAN FINAL
+        # ========================================================
+
+        plan = FormImportPlan(
+            sheets=sheet_data,
+            questions=questions,
+            sections=sections,
+            groups=groups,
+            dependencies=dependencies,
+        )
+
+        return plan, result
+
+    @staticmethod
+    def _build_question_contexts(
+        *,
+        sheet: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """
+        Construit le contexte de chaque colonne-question.
+
+        Une colonne-question est une définition unique.
+        Les lignes sont conservées séparément afin de pouvoir
+        résoudre ultérieurement les références col(...).
+        """
+
+        contexts: list[dict[str, Any]] = []
+
+        for column in sheet["columns"]:
+
+            if not column["is_question"]:
+                continue
+
+            contexts.append(
+                {
+                    "column": column,
+                    "parameters": column["params"],
+                    "rows": sheet.get("rows", []),
+                }
+            )
+
+        return contexts
+
+    @staticmethod
+    def _resolve_question_parameters(
+        *,
+        question_context: dict[str, Any],
+        row: dict[str, Any],
+    ) -> dict[str, Any]:
+        return resolve_column_references(
+            question_context["params"],
+            row_values=row["values"],
+        )
+
+    @staticmethod
+    def _normalize_question_parameters(
+        *,
+        parameters: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Normalise la structure de configuration d'une question
+        avant sa mise dans le plan d'import.
+
+        Cette méthode ne fait aucune écriture en base.
+        """
+
+        question = parameters.get(
+            "question",
+            {},
+        )
+
+        if not isinstance(question, dict):
+            return parameters
+
+        normalized = dict(parameters)
+
+        normalized_question = dict(question)
+
+        # ---------------------------------------------------------
+        # Valeurs par défaut
+        # ---------------------------------------------------------
+
+        normalized_question.setdefault(
+            "description",
+            None,
+        )
+
+        normalized_question.setdefault(
+            "group",
+            None,
+        )
+
+        normalized_question.setdefault(
+            "version",
+            {},
+        )
+
+        normalized_question.setdefault(
+            "formulaire",
+            {},
+        )
+
+        normalized["question"] = normalized_question
+
+        # ---------------------------------------------------------
+        # Section
+        # ---------------------------------------------------------
+
+        if "section" not in normalized:
+            normalized["section"] = None
+
+        return normalized
+
+    async def _find_formulaire_section(
+        self,
+        *,
+        formulaire_id: int,
+        user_id: int,
+        name: str,
+    ) -> FormulaireSection | None:
+        result = await self.session.execute(
+            select(FormulaireSection).where(
+                FormulaireSection.formulaire_id == formulaire_id,
+                FormulaireSection.name == name,
+            )
+        )
+
+        return result.scalar_one_or_none()
+
+    async def execute_plan(
+        self,
+        *,
+        plan: FormImportPlan,
+        formulaire_id: int,
+        user_id: int,
+    ) -> FormImportResult:
+        """
+        Exécute un plan d'import validé.
+
+        Toutes les opérations utilisent la même session SQLAlchemy.
+        Si une exception est levée, la transaction de la requête
+        sera rollbackée par get_db().
+        """
+
+        from app.models.form_builder.question_option import (
+            QuestionOption,
+        )
+        from app.models.form_builder.question_version import (
+            QuestionVersion,
+        )
+        from app.schemas.form_builder.formulaire_question import (
+            FormulaireQuestionCreate,
+        )
+        from app.schemas.form_builder.formulaire_question_config import (
+            FormulaireQuestionConfig,
+        )
+        from app.schemas.form_builder.formulaire_question_dependency import (
+            DependencyAction,
+            DependencyComparisonValue,
+            DependencyCondition,
+            DependencyConditionGroup,
+            FormulaireQuestionDependencyCreate,
+        )
+        from app.schemas.form_builder.formulaire_section import (
+            FormulaireSectionConfig,
+            FormulaireSectionCreate,
+        )
+        from app.schemas.form_builder.question_definition import (
+            QuestionDefinitionCreate,
+        )
+        from app.schemas.form_builder.question_group import (
+            QuestionGroupCreate,
+        )
+        from app.schemas.form_builder.question_version import (
+            QuestionOptionCreate,
+            QuestionVersionCreate,
+        )
+        from app.services.form_builder.formulaire_question import (
+            FormulaireQuestionService,
+        )
+        from app.services.form_builder.formulaire_question_dependency import (
+            FormulaireQuestionDependencyService,
+        )
+        from app.services.form_builder.formulaire_section import (
+            FormulaireSectionService,
+        )
+        from app.services.form_builder.question_bank import (
+            QuestionBankService,
+        )
+        from app.services.form_builder.question_group import (
+            QuestionGroupService,
+        )
+
+        # ============================================================
+        # SERVICES
+        # ============================================================
+
+        question_bank_service = QuestionBankService(
+            self.session,
+        )
+
+        question_group_service = QuestionGroupService(
+            self.session,
+        )
+
+        section_service = FormulaireSectionService(
+            self.session,
+        )
+
+        formulaire_question_service = FormulaireQuestionService(
+            self.session,
+        )
+
+        dependency_service = FormulaireQuestionDependencyService(
+            self.session,
+        )
+
+        # ============================================================
+        # REGISTRES
+        # ============================================================
+
+        questions_by_code: dict[
+            str,
+            QuestionDefinition,
+        ] = {}
+
+        sections_by_name: dict[
+            str,
+            FormulaireSection,
+        ] = {}
+
+        groups_by_name: dict[
+            str,
+            QuestionGroup,
+        ] = {}
+
+        formulaire_questions_by_code: dict[
+            str,
+            FormulaireQuestion,
+        ] = {}
+
+        # ============================================================
+        # COMPTEURS
+        # ============================================================
+
+        created_questions = 0
+        reused_questions = 0
+
+        created_sections = 0
+        reused_sections = 0
+
+        created_groups = 0
+        reused_groups = 0
+
+        created_dependencies = 0
+        reused_dependencies = 0
+
+        created_formulaire_questions = 0
+        reused_formulaire_questions = 0
+
+        # ============================================================
+        # 1. GROUPES
+        # ============================================================
+
+        for group_data in plan.groups:
+
+            name = str(group_data["name"]).strip()
+
+            if not name:
+                continue
+
+            existing_group = await question_group_service.get_by_name(
+                user_id=user_id,
+                name=name,
+            )
+
+            if existing_group is not None:
+
+                groups_by_name[name] = existing_group
+                reused_groups += 1
+
+                continue
+
+            group = await question_group_service.create(
+                user_id=user_id,
+                data=QuestionGroupCreate(
+                    name=name,
+                    description=group_data.get(
+                        "description",
+                    ),
+                ),
+            )
+
+            groups_by_name[name] = group
+            created_groups += 1
+
+        # ============================================================
+        # 2. SECTIONS
+        # ============================================================
+
+        for section_data in plan.sections:
+
+            name = str(section_data["name"]).strip()
+
+            if not name:
+                continue
+
+            existing_section = await self._find_formulaire_section(
+                formulaire_id=formulaire_id,
+                user_id=user_id,
+                name=name,
+            )
+
+            if existing_section is not None:
+
+                sections_by_name[name] = existing_section
+                reused_sections += 1
+
+                continue
+
+            section_config = section_data.get(
+                "config",
+                {},
+            )
+
+            section = await section_service.create(
+                formulaire_id=formulaire_id,
+                user_id=user_id,
+                data=FormulaireSectionCreate(
+                    name=name,
+                    description=section_data.get(
+                        "description",
+                    ),
+                    config=FormulaireSectionConfig.model_validate(
+                        section_config,
+                    ),
+                ),
+            )
+
+            sections_by_name[name] = section
+            created_sections += 1
+
+        # ============================================================
+        # 3. QUESTIONS DE LA BANQUE
+        # ============================================================
+
+        for question_data in plan.questions:
+
+            params = question_data["params"]
+
+            question_config = params.get(
+                "question",
+                {},
+            )
+
+            code = str(question_config["code"]).strip()
+
+            name = str(question_config["name"]).strip()
+
+            description = question_config.get(
+                "description",
+            )
+
+            # --------------------------------------------------------
+            # Chercher la question existante
+            # --------------------------------------------------------
+
+            existing_question = await question_bank_service.get_by_code(
+                user_id=user_id,
+                code=code,
+            )
+
+            if existing_question is not None:
+
+                question = existing_question
+                reused_questions += 1
+
+            else:
+
+                version_config = question_config.get(
+                    "version",
+                    {},
+                )
+
+                question_type = QuestionType(
+                    version_config["question_type"],
+                )
+
+                # ----------------------------------------------------
+                # Options provenant des lignes Excel
+                # ----------------------------------------------------
+
+                options: list[QuestionOptionCreate] = []
+
+                question_type = QuestionType(
+                    version_config["question_type"],
+                )
+
+                option_question_types = {
+                    QuestionType.SINGLE_CHOICE,
+                    QuestionType.MULTIPLE_CHOICE,
+                    QuestionType.DROPDOWN,
+                    QuestionType.AUTOCOMPLETE,
+                    QuestionType.LIKERT_SCALE,
+                    QuestionType.RANKING,
+                }
+
+                if question_type in option_question_types:
+
+                    for position, row in enumerate(
+                        question_data.get("rows", []),
+                    ):
+                        row_values = row.get(
+                            "values",
+                            {},
+                        )
+
+                        column_name = question_data.get(
+                            "header",
+                        )
+
+                        if not isinstance(
+                            row_values,
+                            dict,
+                        ):
+                            continue
+
+                        option_value = row_values.get(
+                            column_name,
+                        )
+
+                        if self._is_empty_value(
+                            option_value,
+                        ):
+                            continue
+
+                        option_value = str(
+                            option_value,
+                        ).strip()
+
+                        options.append(
+                            QuestionOptionCreate(
+                                value=option_value,
+                                label=option_value,
+                                position=position,
+                                option_metadata={},
+                            )
+                        )
+
+                # ----------------------------------------------------
+                # Création question + version 1 + options
+                # ----------------------------------------------------
+
+                question = await question_bank_service.create_question(
+                    user_id=user_id,
+                    data=QuestionDefinitionCreate(
+                        code=code,
+                        name=name,
+                        description=description,
+                    ),
+                    version_data=QuestionVersionCreate(
+                        label=str(version_config["label"]),
+                        help_text=version_config.get(
+                            "help_text",
+                        ),
+                        question_type=question_type,
+                        base_config=version_config.get(
+                            "base_config",
+                            {},
+                        ),
+                        options=options,
+                    ),
+                )
+
+                created_questions += 1
+
+            questions_by_code[code] = question
+
+            # ========================================================
+            # 4. GROUPE DE LA QUESTION
+            # ========================================================
+
+            group = question_config.get(
+                "group",
+            )
+
+            if isinstance(
+                group,
+                dict,
+            ):
+                group_name = group.get(
+                    "name",
+                )
+            else:
+                group_name = group
+
+            if isinstance(
+                group_name,
+                str,
+            ):
+
+                group_name = group_name.strip()
+
+                if group_name:
+
+                    group_object = groups_by_name.get(
+                        group_name,
+                    )
+
+                    if group_object is None:
+
+                        group_object = await question_group_service.get_by_name(
+                            user_id=user_id,
+                            name=group_name,
+                        )
+
+                        if group_object is None:
+
+                            group_object = await question_group_service.create(
+                                user_id=user_id,
+                                data=QuestionGroupCreate(
+                                    name=group_name,
+                                ),
+                            )
+
+                            created_groups += 1
+
+                        else:
+                            reused_groups += 1
+
+                        groups_by_name[group_name] = group_object
+
+                    await question_group_service.add_question(
+                        group_id=group_object.id,
+                        question_id=question.id,
+                        user_id=user_id,
+                    )
+
+            # ========================================================
+            # 5. SECTION
+            # ========================================================
+
+            section_name = params.get(
+                "section",
+            )
+
+            if isinstance(
+                section_name,
+                dict,
+            ):
+                section_name = section_name.get(
+                    "name",
+                )
+
+            if (
+                not isinstance(
+                    section_name,
+                    str,
+                )
+                or not section_name.strip()
+            ):
+
+                section_name = question_data["sheet"]
+
+            section_name = section_name.strip()
+
+            section = sections_by_name.get(
+                section_name,
+            )
+
+            if section is None:
+
+                section = await self._find_formulaire_section(
+                    formulaire_id=formulaire_id,
+                    user_id=user_id,
+                    name=section_name,
+                )
+
+                if section is None:
+
+                    section = await section_service.create(
+                        formulaire_id=formulaire_id,
+                        user_id=user_id,
+                        data=FormulaireSectionCreate(
+                            name=section_name,
+                        ),
+                    )
+
+                    created_sections += 1
+
+                else:
+                    reused_sections += 1
+
+                sections_by_name[section_name] = section
+
+            # ========================================================
+            # 6. VERSION À UTILISER
+            # ========================================================
+
+            version_result = await self.session.execute(
+                select(QuestionVersion)
+                .where(
+                    QuestionVersion.question_definition_id == question.id,
+                )
+                .order_by(
+                    QuestionVersion.version.desc(),
+                )
+                .limit(1)
+            )
+
+            version = version_result.scalar_one_or_none()
+
+            if version is None:
+                raise ValueError(f"La question « {code} » " "ne possède aucune version.")
+
+            # ========================================================
+            # 7. CONFIGURATION FORMULAIRE
+            # ========================================================
+
+            formulaire_question_data = params.get(
+                "formulaire_question",
+                {},
+            )
+
+            if not isinstance(
+                formulaire_question_data,
+                dict,
+            ):
+                formulaire_question_data = {}
+
+            formulaire_config = formulaire_question_data.get(
+                "config",
+                {},
+            )
+
+            if not isinstance(
+                formulaire_config,
+                dict,
+            ):
+                formulaire_config = {}
+
+            formulaire_question_config = FormulaireQuestionConfig.model_validate(
+                formulaire_config,
+            )
+
+            # ========================================================
+            # 8. AJOUT AU FORMULAIRE
+            # ========================================================
+
+            existing_formulaire_question_result = await self.session.execute(
+                select(FormulaireQuestion)
+                .where(
+                    FormulaireQuestion.formulaire_id == formulaire_id,
+                    FormulaireQuestion.section_id == section.id,
+                    FormulaireQuestion.question_definition_id == question.id,
+                )
+                .limit(1)
+            )
+
+            formulaire_question = existing_formulaire_question_result.scalar_one_or_none()
+
+            if formulaire_question is None:
+
+                if formulaire_question is None:
+
+                    formulaire_question = await formulaire_question_service.create(
+                        formulaire_id=formulaire_id,
+                        section_id=section.id,
+                        user_id=user_id,
+                        data=FormulaireQuestionCreate(
+                            question_definition_id=question.id,
+                            question_version_id=version.id,
+                            config=formulaire_question_config,
+                        ),
+                    )
+
+                    created_formulaire_questions += 1
+
+                else:
+
+                    reused_formulaire_questions += 1
+
+                formulaire_questions_by_code[code] = formulaire_question
+
+        # ============================================================
+        # 9. DÉPENDANCES
+        # ============================================================
+
+        def resolve_question_id(
+            code: str,
+        ) -> int:
+            question = formulaire_questions_by_code.get(
+                code,
+            )
+
+            if question is None:
+                raise ValueError(
+                    f"La question « {code} » " "n'est pas présente dans le formulaire."
+                )
+
+            return question.id
+
+        def resolve_section_id(
+            name: str,
+        ) -> int:
+            section = sections_by_name.get(
+                name,
+            )
+
+            if section is None:
+                raise ValueError(f"La section « {name} » " "n'est pas présente dans le formulaire.")
+
+            return section.id
+
+        def convert_condition_group(
+            group: dict[str, Any],
+        ) -> DependencyConditionGroup:
+
+            conditions: list[DependencyCondition] = []
+
+            for condition in group.get(
+                "conditions",
+                [],
+            ):
+
+                source_code = condition.get(
+                    "source_question_code",
+                )
+
+                if not isinstance(
+                    source_code,
+                    str,
+                ):
+                    raise ValueError("source_question_code " "est obligatoire.")
+
+                comparison_value_data = condition.get(
+                    "comparison_value",
+                )
+
+                comparison_value = None
+
+                if comparison_value_data is not None:
+
+                    source_type = comparison_value_data.get(
+                        "source_type",
+                    )
+
+                    if source_type == "CONSTANT":
+
+                        comparison_value = DependencyComparisonValue(
+                            source_type="CONSTANT",
+                            value=(
+                                None
+                                if comparison_value_data.get("value") is None
+                                else str(comparison_value_data.get("value"))
+                            ),
+                        )
+
+                    elif source_type == "QUESTION":
+
+                        comparison_question_code = comparison_value_data.get(
+                            "question_code",
+                        )
+
+                        if not isinstance(
+                            comparison_question_code,
+                            str,
+                        ):
+                            raise ValueError(
+                                "Une comparaison QUESTION " "doit fournir question_code."
+                            )
+
+                        comparison_value = DependencyComparisonValue(
+                            source_type="QUESTION",
+                            question_id=resolve_question_id(
+                                comparison_question_code,
+                            ),
+                        )
+
+                    else:
+
+                        raise ValueError("source_type de comparaison " "invalide.")
+
+                conditions.append(
+                    DependencyCondition(
+                        source_question_id=resolve_question_id(
+                            source_code,
+                        ),
+                        operator=str(condition["operator"]),
+                        comparison_value=comparison_value,
+                    )
+                )
+
+            groups = [
+                convert_condition_group(
+                    child_group,
+                )
+                for child_group in group.get(
+                    "groups",
+                    [],
+                )
+            ]
+
+            return DependencyConditionGroup(
+                operator=group.get(
+                    "operator",
+                    "AND",
+                ),
+                conditions=conditions,
+                groups=groups,
+            )
+
+        def convert_actions(
+            actions: list[dict[str, Any]],
+        ) -> list[DependencyAction]:
+
+            converted: list[DependencyAction] = []
+
+            for action in actions:
+
+                target_type = action.get(
+                    "target_type",
+                    "QUESTION",
+                )
+
+                target_id: int
+
+                if target_type == "QUESTION":
+
+                    target_code = action.get(
+                        "target_question_code",
+                    )
+
+                    if not isinstance(
+                        target_code,
+                        str,
+                    ):
+                        raise ValueError(
+                            "Une action QUESTION doit " "fournir target_question_code."
+                        )
+
+                    target_id = resolve_question_id(
+                        target_code,
+                    )
+
+                elif target_type == "SECTION":
+
+                    section_name = action.get(
+                        "target_section_name",
+                    )
+
+                    if not isinstance(
+                        section_name,
+                        str,
+                    ):
+                        raise ValueError("Une action SECTION doit " "fournir target_section_name.")
+
+                    target_id = resolve_section_id(
+                        section_name,
+                    )
+
+                else:
+
+                    raise ValueError(f"Type de cible inconnu : " f"{target_type}")
+
+                converted.append(
+                    DependencyAction(
+                        type=str(action["type"]),
+                        target_type=target_type,
+                        target_id=target_id,
+                        config=action.get(
+                            "config",
+                            {},
+                        ),
+                    )
+                )
+
+            return converted
+
+        for dependency_data in plan.dependencies:
+
+            dependency = dependency_data["data"]
+
+            target_code = dependency_data["target_code"]
+
+            target_formulaire_question = formulaire_questions_by_code.get(
+                target_code,
+            )
+
+            if target_formulaire_question is None:
+                raise ValueError(
+                    f"La question cible « {target_code} » " "n'est pas présente dans le formulaire."
+                )
+
+            condition_data = dependency.get(
+                "condition",
+            )
+
+            if not isinstance(
+                condition_data,
+                dict,
+            ):
+                raise ValueError(
+                    f"La dépendance de « {target_code} » " "ne possède pas de condition valide."
+                )
+
+            dependency_schema = FormulaireQuestionDependencyCreate(
+                condition=convert_condition_group(
+                    condition_data,
+                ),
+                actions_if_true=convert_actions(
+                    dependency.get(
+                        "actions_if_true",
+                        [],
+                    )
+                ),
+                actions_if_false=convert_actions(
+                    dependency.get(
+                        "actions_if_false",
+                        [],
+                    )
+                ),
+            )
+
+            # --------------------------------------------------------
+            # Vérifier si la dépendance existe déjà
+            # --------------------------------------------------------
+
+            existing_dependencies = await dependency_service.list(
+                formulaire_id=formulaire_id,
+                section_id=target_formulaire_question.section_id,
+                target_question_id=target_formulaire_question.id,
+                user_id=user_id,
+            )
+
+            dependency_exists = False
+
+            candidate_condition = dependency_schema.condition.model_dump()
+
+            candidate_true_actions = [
+                action.model_dump() for action in dependency_schema.actions_if_true
+            ]
+
+            candidate_false_actions = [
+                action.model_dump() for action in dependency_schema.actions_if_false
+            ]
+
+            for existing_dependency in existing_dependencies:
+
+                if (
+                    existing_dependency.condition == candidate_condition
+                    and existing_dependency.actions_if_true == candidate_true_actions
+                    and existing_dependency.actions_if_false == candidate_false_actions
+                ):
+                    dependency_exists = True
+                    break
+
+            if dependency_exists:
+
+                reused_dependencies += 1
+
+            else:
+
+                await dependency_service.create(
+                    formulaire_id=formulaire_id,
+                    section_id=target_formulaire_question.section_id,
+                    target_question_id=target_formulaire_question.id,
+                    user_id=user_id,
+                    data=dependency_schema,
+                )
+
+                created_dependencies += 1
+
+        # ============================================================
+        # RESULTAT
+        # ============================================================
+
+        return FormImportResult(
+            success=True,
+            message="Import du formulaire terminé avec succès.",
+            sheets=len(plan.sheets),
+            questions=len(plan.questions),
+            sections=len(plan.sections),
+            groups=len(plan.groups),
+            dependencies=len(plan.dependencies),
+            created_questions=created_questions,
+            reused_questions=reused_questions,
+            created_sections=created_sections,
+            reused_sections=reused_sections,
+            created_groups=created_groups,
+            reused_groups=reused_groups,
+            created_dependencies=created_dependencies,
+            reused_dependencies=reused_dependencies,
+            created_formulaire_questions=created_formulaire_questions,
+            reused_formulaire_questions=reused_formulaire_questions,
+            issues=[],
+        )

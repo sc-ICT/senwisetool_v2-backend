@@ -1,26 +1,29 @@
-from pathlib import Path
-
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import (
     CurrentUser,
-    get_project_definition_service,
+    get_form_definition_service,
+    get_project_service,
 )
 from app.models.user import User
 from app.schemas.common import ApiResponse, ok
-from app.schemas.file_system import FileNodeResponse
-from app.schemas.form_builder.project_definition import (
-    ProjectDefinitionCreate,
-    ProjectDefinitionListResponse,
-    ProjectDefinitionResponse,
-    ProjectDefinitionUpdate,
+from app.schemas.form_builder.form_definition import (
+    FormDefinitionListResponse,
+    FormDefinitionResponse,
+    ProjectFormCreate,
 )
-from app.schemas.form_builder.project_files import ProjectFilesResponse
-from app.services.file_system import FileAlreadyExistsError, InvalidFileOperationError
-from app.services.form_builder.project_defaults import normalize_project_global_config
-from app.services.form_builder.project_definition import (
-    ProjectDefinitionService,
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectListResponse,
+    ProjectResponse,
+    ProjectUpdate,
 )
+from app.services.file_system import (
+    FileAlreadyExistsError,
+    InvalidFileOperationError,
+)
+from app.services.form_builder.form_definition import FormDefinitionService
+from app.services.project import ProjectService
 
 router = APIRouter(
     prefix="/projects",
@@ -30,13 +33,13 @@ router = APIRouter(
 
 @router.post(
     "",
-    response_model=ApiResponse[ProjectDefinitionResponse],
+    response_model=ApiResponse[ProjectResponse],
     status_code=status.HTTP_201_CREATED,
 )
 async def create_project(
-    data: ProjectDefinitionCreate,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
+    data: ProjectCreate,
+    service: ProjectService = Depends(
+        get_project_service,
     ),
     user: User = CurrentUser,
 ):
@@ -48,10 +51,22 @@ async def create_project(
 
         return ok(
             message="Projet créé avec succès.",
-            data=ProjectDefinitionResponse.model_validate(
+            data=ProjectResponse.model_validate(
                 project,
             ),
         )
+
+    except FileAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except InvalidFileOperationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     except ValueError as exc:
         raise HTTPException(
@@ -62,12 +77,12 @@ async def create_project(
 
 @router.get(
     "",
-    response_model=ApiResponse[ProjectDefinitionListResponse],
+    response_model=ApiResponse[ProjectListResponse],
 )
 async def list_projects(
     include_archived: bool = False,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
+    service: ProjectService = Depends(
+        get_project_service,
     ),
     user: User = CurrentUser,
 ):
@@ -78,9 +93,9 @@ async def list_projects(
 
     return ok(
         message="Projets récupérés avec succès.",
-        data=ProjectDefinitionListResponse(
+        data=ProjectListResponse(
             items=[
-                ProjectDefinitionResponse.model_validate(
+                ProjectResponse.model_validate(
                     project,
                 )
                 for project in projects
@@ -92,12 +107,12 @@ async def list_projects(
 
 @router.get(
     "/{project_id}",
-    response_model=ApiResponse[ProjectDefinitionResponse],
+    response_model=ApiResponse[ProjectResponse],
 )
 async def get_project(
     project_id: int,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
+    service: ProjectService = Depends(
+        get_project_service,
     ),
     user: User = CurrentUser,
 ):
@@ -112,11 +127,9 @@ async def get_project(
             detail="Projet introuvable.",
         )
 
-    project.global_config = normalize_project_global_config(project.global_config)
-
     return ok(
         message="Projet récupéré avec succès.",
-        data=ProjectDefinitionResponse.model_validate(
+        data=ProjectResponse.model_validate(
             project,
         ),
     )
@@ -124,13 +137,13 @@ async def get_project(
 
 @router.patch(
     "/{project_id}",
-    response_model=ApiResponse[ProjectDefinitionResponse],
+    response_model=ApiResponse[ProjectResponse],
 )
 async def update_project(
     project_id: int,
-    data: ProjectDefinitionUpdate,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
+    data: ProjectUpdate,
+    service: ProjectService = Depends(
+        get_project_service,
     ),
     user: User = CurrentUser,
 ):
@@ -143,26 +156,125 @@ async def update_project(
 
         return ok(
             message="Projet modifié avec succès.",
-            data=ProjectDefinitionResponse.model_validate(
+            data=ProjectResponse.model_validate(
                 project,
             ),
         )
 
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/{project_id}/forms",
+    response_model=ApiResponse[FormDefinitionListResponse],
+)
+async def list_project_forms(
+    project_id: int,
+    include_archived: bool = False,
+    service: FormDefinitionService = Depends(
+        get_form_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    forms = await service.list_by_project(
+        project_id=project_id,
+        user_id=user.id,
+        include_archived=include_archived,
+    )
+
+    return ok(
+        message="Formulaires du projet récupérés avec succès.",
+        data=FormDefinitionListResponse(
+            items=[
+                FormDefinitionResponse.model_validate(
+                    form,
+                )
+                for form in forms
+            ],
+            count=len(forms),
+        ),
+    )
+
+
+@router.post(
+    "/{project_id}/forms",
+    response_model=ApiResponse[FormDefinitionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_project_form(
+    project_id: int,
+    data: ProjectFormCreate,
+    service: FormDefinitionService = Depends(
+        get_form_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        form = await service.create_for_project(
+            user_id=user.id,
+            project_id=project_id,
+            name=data.name,
+            description=data.description,
+            form_type=data.form_type,
+        )
+
+        return ok(
+            message="Formulaire créé avec succès.",
+            data=FormDefinitionResponse.model_validate(
+                form,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/{project_id}/publish",
+    response_model=ApiResponse[ProjectResponse],
+)
+async def publish_project(
+    project_id: int,
+    service: ProjectService = Depends(
+        get_project_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        project = await service.publish(
+            project_id=project_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Projet publié avec succès.",
+            data=ProjectResponse.model_validate(
+                project,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
 
 @router.patch(
     "/{project_id}/archive",
-    response_model=ApiResponse[ProjectDefinitionResponse],
+    response_model=ApiResponse[ProjectResponse],
 )
 async def archive_project(
     project_id: int,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
+    service: ProjectService = Depends(
+        get_project_service,
     ),
     user: User = CurrentUser,
 ):
@@ -174,180 +286,44 @@ async def archive_project(
 
         return ok(
             message="Projet archivé avec succès.",
-            data=ProjectDefinitionResponse.model_validate(
+            data=ProjectResponse.model_validate(
                 project,
             ),
         )
 
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-
-@router.delete(
-    "/{project_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_project(
-    project_id: int,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
-    ),
-    user: User = CurrentUser,
-):
-    try:
-        await service.delete(
-            project_id=project_id,
-            user_id=user.id,
-        )
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-
-@router.get(
-    "/{project_id}/files",
-    response_model=ApiResponse[ProjectFilesResponse],
-)
-async def list_project_files(
-    project_id: int,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
-    ),
-    user: User = CurrentUser,
-):
-    try:
-        files = await service.list_project_files(
-            project_id=project_id,
-            user_id=user.id,
-        )
-
-        response_items = [FileNodeResponse.model_validate(file) for file in files]
-
-        return ok(
-            message="Fichiers du projet récupérés avec succès.",
-            data=ProjectFilesResponse(
-                items=response_items,
-                count=len(response_items),
-            ),
-        )
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
-        ) from exc
-
-
-@router.post(
-    "/{project_id}/files",
-    response_model=ApiResponse[FileNodeResponse],
-    status_code=status.HTTP_201_CREATED,
-)
-async def upload_project_file(
-    project_id: int,
-    file: UploadFile = File(...),
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
-    ),
-    user: User = CurrentUser,
-):
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Le fichier ne possède aucun nom.",
-        )
-
-    filename = Path(file.filename).name
-
-    extension = Path(filename).suffix.lstrip(".").lower() or None
-
-    try:
-        project_file = await service.upload_project_file(
-            project_id=project_id,
-            user_id=user.id,
-            name=filename,
-            source=file.file,
-            mime_type=file.content_type,
-            extension=extension,
-        )
-
-        return ok(
-            message="Fichier ajouté au projet avec succès.",
-            data=FileNodeResponse.model_validate(
-                project_file,
-            ),
-        )
-
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
-        ) from exc
-
-    except FileAlreadyExistsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    except InvalidFileOperationError as exc:
-        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
 
 
-@router.delete(
-    "/{project_id}/files/{file_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+@router.patch(
+    "/{project_id}/draft",
+    response_model=ApiResponse[ProjectResponse],
 )
-async def delete_project_file(
+async def restore_project_to_draft(
     project_id: int,
-    file_id: int,
-    service: ProjectDefinitionService = Depends(
-        get_project_definition_service,
+    service: ProjectService = Depends(
+        get_project_service,
     ),
     user: User = CurrentUser,
 ):
     try:
-        await service.delete_project_file(
+        project = await service.restore_to_draft(
             project_id=project_id,
-            file_id=file_id,
             user_id=user.id,
+        )
+
+        return ok(
+            message="Projet remis en brouillon avec succès.",
+            data=ProjectResponse.model_validate(
+                project,
+            ),
         )
 
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc

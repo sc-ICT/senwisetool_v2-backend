@@ -1,0 +1,62 @@
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.form_builder.section_repeat import SectionRepeatConfig
+
+
+class FormulaireSectionConfig(BaseModel):
+    repeat: SectionRepeatConfig = Field(
+        default_factory=SectionRepeatConfig,
+    )
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class FormulaireSectionCreate(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+
+    description: str | None = None
+
+    config: FormulaireSectionConfig = Field(
+        default_factory=FormulaireSectionConfig,
+    )
+
+
+class FormulaireSectionUpdate(BaseModel):
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+
+    description: str | None = None
+
+    config: FormulaireSectionConfig | None = None
+
+
+class FormulaireSectionResponse(BaseModel):
+    id: int
+    formulaire_id: int
+    name: str
+    description: str | None
+    position: int
+    config: dict
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
+
+class FormulaireSectionListResponse(BaseModel):
+    items: list[FormulaireSectionResponse]
+    count: int
+
+
+class FormulaireSectionReorder(BaseModel):
+    ordered_section_ids: list[int] = Field(
+        min_length=1,
+    )

@@ -78,7 +78,7 @@ class ExcelImportSection(BaseModel):
     )
 
 
-class ExcelImportProjectQuestion(BaseModel):
+class ExcelImportFormQuestion(BaseModel):
     """
     Configuration de l'utilisation de la question
     dans le formulaire courant.
@@ -185,8 +185,8 @@ class ExcelImportQuestionParameters(BaseModel):
 
     section: ExcelImportSection
 
-    project_question: ExcelImportProjectQuestion = Field(
-        default_factory=ExcelImportProjectQuestion,
+    form_question: ExcelImportFormQuestion = Field(
+        default_factory=ExcelImportFormQuestion,
     )
 
     dependencies: list[ExcelImportDependency] = Field(

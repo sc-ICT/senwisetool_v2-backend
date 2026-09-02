@@ -1,0 +1,247 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.dependencies import (
+    CurrentUser,
+    get_formulaire_question_service,
+)
+from app.models.form_builder.formulaire_question import (
+    FormulaireQuestion,
+)
+from app.models.user import User
+from app.schemas.common import ApiResponse, ok
+from app.schemas.form_builder.formulaire_question import (
+    FormulaireQuestionCreate,
+    FormulaireQuestionListResponse,
+    FormulaireQuestionOptionResponse,
+    FormulaireQuestionReorder,
+    FormulaireQuestionResponse,
+    FormulaireQuestionUpdate,
+)
+from app.services.form_builder.formulaire_question import (
+    FormulaireQuestionService,
+)
+
+
+def build_formulaire_question_response(
+    question: FormulaireQuestion,
+) -> FormulaireQuestionResponse:
+    return FormulaireQuestionResponse(
+        id=question.id,
+        formulaire_id=question.formulaire_id,
+        section_id=question.section_id,
+        question_definition_id=(question.question_definition_id),
+        question_version_id=(question.question_version_id),
+        position=question.position,
+        config=question.config,
+        question_code=(question.question_definition.code),
+        question_name=(question.question_definition.name),
+        version_number=(question.question_version.version),
+        version_label=(question.question_version.label),
+        question_type=(question.question_version.question_type.value),
+        options=[
+            FormulaireQuestionOptionResponse(
+                id=option.id,
+                value=option.value,
+                label=option.label,
+                position=option.position,
+                option_metadata=option.option_metadata,
+            )
+            for option in sorted(
+                question.question_version.options,
+                key=lambda option: option.position,
+            )
+        ],
+    )
+
+
+router = APIRouter(
+    prefix="/formulaires/{formulaire_id}/sections/{section_id}/questions",
+    tags=["Formulaire Questions"],
+)
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[FormulaireQuestionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_formulaire_question(
+    formulaire_id: int,
+    section_id: int,
+    data: FormulaireQuestionCreate,
+    service: FormulaireQuestionService = Depends(
+        get_formulaire_question_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        formulaire_question = await service.create(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        formulaire_question = await service.get(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            formulaire_question_id=formulaire_question.id,
+            user_id=user.id,
+        )
+
+        if formulaire_question is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=("La question a été créée, " "mais sa récupération a échoué."),
+            )
+
+        return ok(
+            message="Question ajoutée au formulaire.",
+            data=build_formulaire_question_response(formulaire_question),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "",
+    response_model=ApiResponse[FormulaireQuestionListResponse],
+)
+async def list_formulaire_questions(
+    formulaire_id: int,
+    section_id: int,
+    service: FormulaireQuestionService = Depends(
+        get_formulaire_question_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        questions = await service.list(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            user_id=user.id,
+        )
+
+        items = [build_formulaire_question_response(question) for question in questions]
+
+        return ok(
+            message="Questions récupérées avec succès.",
+            data=FormulaireQuestionListResponse(
+                items=items,
+                count=len(items),
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/reorder",
+    response_model=ApiResponse[FormulaireQuestionListResponse],
+)
+async def reorder_formulaire_questions(
+    formulaire_id: int,
+    section_id: int,
+    data: FormulaireQuestionReorder,
+    service: FormulaireQuestionService = Depends(
+        get_formulaire_question_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        questions = await service.reorder(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            user_id=user.id,
+            ordered_question_ids=(data.ordered_question_ids),
+        )
+
+        return ok(
+            message="Questions réordonnées avec succès.",
+            data=FormulaireQuestionListResponse(
+                items=[build_formulaire_question_response(question) for question in questions],
+                count=len(questions),
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/{formulaire_question_id}",
+    response_model=ApiResponse[FormulaireQuestionResponse],
+)
+async def update_formulaire_question(
+    formulaire_id: int,
+    section_id: int,
+    formulaire_question_id: int,
+    data: FormulaireQuestionUpdate,
+    service: FormulaireQuestionService = Depends(
+        get_formulaire_question_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        formulaire_question = await service.update(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            formulaire_question_id=formulaire_question_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Question du formulaire modifiée.",
+            data=build_formulaire_question_response(formulaire_question),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete(
+    "/{formulaire_question_id}",
+    response_model=ApiResponse[None],
+)
+async def delete_formulaire_question(
+    formulaire_id: int,
+    section_id: int,
+    formulaire_question_id: int,
+    service: FormulaireQuestionService = Depends(
+        get_formulaire_question_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        await service.delete(
+            formulaire_id=formulaire_id,
+            section_id=section_id,
+            formulaire_question_id=formulaire_question_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Question retirée du formulaire.",
+            data=None,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

@@ -14,17 +14,18 @@ from app.database import AsyncSessionLocal, get_db
 from app.models.user import User
 from app.services.archive import ArchiveService
 from app.services.file_system import FileSystemService
+from app.services.form_builder.form_definition import FormDefinitionService
 from app.services.form_builder.form_import import FormImportService
-from app.services.form_builder.project_definition import ProjectDefinitionService
-from app.services.form_builder.project_question import ProjectQuestionService
-from app.services.form_builder.project_question_dependency import (
-    ProjectQuestionDependencyService,
+from app.services.form_builder.form_question import FormQuestionService
+from app.services.form_builder.form_question_dependency import (
+    FormQuestionDependencyService,
 )
-from app.services.form_builder.project_section import ProjectSectionService
+from app.services.form_builder.form_section import FormSectionService
 from app.services.form_builder.question_bank import (
     QuestionBankService,
 )
 from app.services.form_builder.question_group import QuestionGroupService
+from app.services.project import ProjectService
 from app.services.storage.local import LocalStorageService
 
 
@@ -131,38 +132,38 @@ def get_question_group_service(
     )
 
 
-def get_project_definition_service(
+def get_form_definition_service(
     session: AsyncSession = Depends(get_db),
     file_system: FileSystemService = Depends(
         get_file_system_service,
     ),
-) -> ProjectDefinitionService:
-    return ProjectDefinitionService(
+) -> FormDefinitionService:
+    return FormDefinitionService(
         session=session,
         file_system=file_system,
     )
 
 
-def get_project_section_service(
+def get_form_section_service(
     session: AsyncSession = Depends(get_db),
-) -> ProjectSectionService:
-    return ProjectSectionService(
+) -> FormSectionService:
+    return FormSectionService(
         session=session,
     )
 
 
-def get_project_question_service(
+def get_form_question_service(
     session: AsyncSession = Depends(get_db),
-) -> ProjectQuestionService:
-    return ProjectQuestionService(
+) -> FormQuestionService:
+    return FormQuestionService(
         session=session,
     )
 
 
-def get_project_question_dependency_service(
+def get_form_question_dependency_service(
     session: AsyncSession = Depends(get_db),
-) -> ProjectQuestionDependencyService:
-    return ProjectQuestionDependencyService(
+) -> FormQuestionDependencyService:
+    return FormQuestionDependencyService(
         session,
     )
 
@@ -172,6 +173,18 @@ def get_form_import_service(
 ) -> FormImportService:
     return FormImportService(
         session=session,
+    )
+
+
+def get_project_service(
+    session: AsyncSession = Depends(get_db),
+    file_system: FileSystemService = Depends(
+        get_file_system_service,
+    ),
+) -> ProjectService:
+    return ProjectService(
+        session=session,
+        file_system=file_system,
     )
 
 

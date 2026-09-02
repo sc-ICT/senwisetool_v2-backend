@@ -120,6 +120,12 @@ class ProjectStatus(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class FormStatus(str, Enum):
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    ARCHIVED = "ARCHIVED"
+
+
 class DependencyConditionOperator(str, Enum):
     """
     Opérateurs utilisables dans les conditions de dépendance.

@@ -16,13 +16,14 @@ from app.routes import (
     file_system,
     form_builder,
     form_import,
-    project_questions,
-    project_sections,
+    form_questions,
+    form_sections,
+    forms,
     projects,
     question_groups,
 )
-from app.routes.project_question_dependencies import (
-    router as project_question_dependencies_router,
+from app.routes.form_question_dependencies import (
+    router as form_question_dependencies_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,22 +136,25 @@ app.include_router(form_builder.router)
 # ─── ROUTES DU QUESTION GROUPS ───────────────────────────────────────────────────────────
 app.include_router(question_groups.router)
 
-
-# ─── ROUTES DU PROJECT ───────────────────────────────────────────────────────────
+# ─── ROUTES DES PROJETS ───────────────────────────────────────────────────────
 app.include_router(projects.router)
 
 
-# ─── ROUTES DU PROJECT SECTION ───────────────────────────────────────────────────────────
-app.include_router(project_sections.router)
+# ─── ROUTES DU FORM ───────────────────────────────────────────────────────────
+app.include_router(forms.router)
 
 
-# ─── ROUTES DU PROJECT QUESTION ───────────────────────────────────────────────────────────
-app.include_router(project_questions.router)
+# ─── ROUTES DU FORM SECTION ───────────────────────────────────────────────────────────
+app.include_router(form_sections.router)
 
 
-# ─── ROUTES DU PROJECT DEPENDENCES ───────────────────────────────────────────────────────────
-app.include_router(project_question_dependencies_router)
+# ─── ROUTES DU FORM QUESTION ───────────────────────────────────────────────────────────
+app.include_router(form_questions.router)
 
 
-# ─── ROUTES DU PROJECT IMPORT QUESTIONS ───────────────────────────────────────────────────────────
+# ─── ROUTES DU FORM DEPENDENCES ───────────────────────────────────────────────────────────
+app.include_router(form_question_dependencies_router)
+
+
+# ─── ROUTES DU FORM IMPORT QUESTIONS ───────────────────────────────────────────────────────────
 app.include_router(form_import.router)

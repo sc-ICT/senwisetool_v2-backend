@@ -21,7 +21,7 @@ from app.services.form_builder.form_import import (
 )
 
 router = APIRouter(
-    prefix="/projects/{project_id}/form-import",
+    prefix="/forms/{form_id}/form-import",
     tags=["Form Import"],
 )
 
@@ -31,7 +31,7 @@ router = APIRouter(
     response_model=ApiResponse[FormImportResult],
 )
 async def validate_form_import(
-    project_id: int,
+    form_id: int,
     file: UploadFile = File(...),
     service: FormImportService = Depends(
         get_form_import_service,
@@ -62,7 +62,7 @@ async def validate_form_import(
 
     try:
         _, result = await service.build_plan(
-            project_id=project_id,
+            form_id=form_id,
             user_id=user.id,
             file_bytes=file_bytes,
         )
@@ -84,7 +84,7 @@ async def validate_form_import(
     response_model=ApiResponse[FormImportResult],
 )
 async def execute_form_import(
-    project_id: int,
+    form_id: int,
     file: UploadFile = File(...),
     service: FormImportService = Depends(
         get_form_import_service,
@@ -118,7 +118,7 @@ async def execute_form_import(
     try:
 
         plan, validation_result = await service.build_plan(
-            project_id=project_id,
+            form_id=form_id,
             user_id=user.id,
             file_bytes=file_bytes,
         )
@@ -141,7 +141,7 @@ async def execute_form_import(
 
         result = await service.execute_plan(
             plan=plan,
-            project_id=project_id,
+            form_id=form_id,
             user_id=user.id,
         )
 

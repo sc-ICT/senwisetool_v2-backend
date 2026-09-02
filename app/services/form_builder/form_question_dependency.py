@@ -1,0 +1,800 @@
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models.form_builder.enums import (
+    DependencyActionType,
+    DependencyConditionOperator,
+    DependencyLogicalOperator,
+    DependencyTargetType,
+)
+from app.models.form_builder.form_definition import FormDefinition
+from app.models.form_builder.form_question import (
+    FormQuestion,
+)
+from app.models.form_builder.form_question_dependency import (
+    FormQuestionDependency,
+)
+from app.models.form_builder.form_section import FormSection
+from app.models.form_builder.question_version import QuestionVersion
+from app.schemas.form_builder.form_question_dependency import (
+    FormQuestionDependencyCreate,
+)
+from app.services.form_builder.dependency_validation import (
+    validate_dependency_condition,
+)
+
+CHOICE_TYPES = {
+    "SINGLE_CHOICE",
+    "MULTIPLE_CHOICE",
+    "DROPDOWN",
+    "AUTOCOMPLETE",
+    "LIKERT_SCALE",
+}
+
+
+def validate_dependency_value(
+    *,
+    source_question: FormQuestion,
+    operator: str,
+    value: str,
+) -> None:
+    question_type = source_question.question_version.question_type.value
+
+    options = source_question.question_version.options
+
+    option_values = {option.value for option in options}
+
+    if operator in {
+        "EQUALS",
+        "NOT_EQUALS",
+    }:
+        if question_type in CHOICE_TYPES:
+            if value not in option_values:
+                raise ValueError(
+                    "La valeur choisie ne correspond " "à aucune option de la question source."
+                )
+
+        return
+
+    if operator in {
+        "IN",
+        "NOT_IN",
+    }:
+        if question_type not in {
+            "MULTIPLE_CHOICE",
+            "DROPDOWN",
+            "AUTOCOMPLETE",
+            "SINGLE_CHOICE",
+            "LIKERT_SCALE",
+        }:
+            raise ValueError(
+                "Cet opérateur ne peut pas être utilisé " "avec ce type de question source."
+            )
+
+        values = [item.strip() for item in value.split(",") if item.strip()]
+
+        if not values:
+            raise ValueError("Au moins une valeur doit être fournie.")
+
+        invalid_values = [item for item in values if item not in option_values]
+
+        if invalid_values:
+            raise ValueError(
+                "Une ou plusieurs valeurs ne correspondent "
+                "pas aux options de la question source."
+            )
+
+        return
+
+    raise ValueError("Opérateur de dépendance non supporté.")
+
+
+class FormQuestionDependencyService:
+    def __init__(
+        self,
+        session: AsyncSession,
+    ) -> None:
+        self.session = session
+
+    def _are_question_types_compatible(
+        self,
+        source_type,
+        comparison_type,
+    ) -> bool:
+
+        if source_type == comparison_type:
+            return True
+
+        compatible_groups = [
+            {
+                "INTEGER",
+                "DECIMAL",
+                "PERCENTAGE",
+                "CURRENCY",
+            },
+            {
+                "DATE",
+                "DATETIME",
+            },
+        ]
+
+        source_value = source_type.value
+        comparison_value = comparison_type.value
+
+        return any(
+            source_value in group and comparison_value in group for group in compatible_groups
+        )
+
+    def _validate_question_compatibility(
+        self,
+        *,
+        source_question,
+        comparison_question,
+        operator,
+    ):
+        source_type = source_question.question_version.question_type
+        comparison_type = comparison_question.question_version.question_type
+
+        if not self._are_question_types_compatible(
+            source_type,
+            comparison_type,
+        ):
+            raise ValueError(
+                "Les questions utilisées pour une comparaison "
+                "doivent avoir des types compatibles. "
+                f"Type source : {source_type.value}. "
+                f"Type comparaison : {comparison_type.value}."
+            )
+
+        valid_operators = {
+            DependencyConditionOperator.EQUALS,
+            DependencyConditionOperator.NOT_EQUALS,
+            DependencyConditionOperator.IN,
+            DependencyConditionOperator.NOT_IN,
+            DependencyConditionOperator.GREATER_THAN,
+            DependencyConditionOperator.GREATER_THAN_OR_EQUALS,
+            DependencyConditionOperator.LESS_THAN,
+            DependencyConditionOperator.LESS_THAN_OR_EQUALS,
+            DependencyConditionOperator.CONTAINS,
+            DependencyConditionOperator.NOT_CONTAINS,
+            DependencyConditionOperator.IS_EMPTY,
+            DependencyConditionOperator.IS_NOT_EMPTY,
+        }
+
+        if operator not in valid_operators:
+            raise ValueError(
+                f"L'opérateur {operator.value} n'est pas supporté "
+                "pour une comparaison entre questions."
+            )
+
+    def _validate_action_target_compatibility(
+        self,
+        *,
+        action_type,
+        target_type,
+    ):
+        question_only = {
+            DependencyActionType.FILTER_OPTIONS,
+            DependencyActionType.SET_VALUE,
+            DependencyActionType.COPY_VALUE,
+            DependencyActionType.CLEAR_VALUE,
+        }
+
+        section_only = {
+            DependencyActionType.REPEAT_SECTION,
+        }
+
+        if action_type in question_only and target_type != DependencyTargetType.QUESTION:
+            raise ValueError(f"L'action {action_type.value} " "doit cibler une question.")
+
+        if action_type in section_only and target_type != DependencyTargetType.SECTION:
+            raise ValueError(f"L'action {action_type.value} " "doit cibler une section.")
+
+    async def _validate_condition(
+        self,
+        *,
+        condition,
+        form_id: int,
+        user_id: int,
+    ):
+        if (
+            condition.comparison_value is not None
+            and condition.comparison_value.source_type == "QUESTION"
+            and condition.comparison_value.question_id == condition.source_question_id
+        ):
+            raise ValueError("Une question ne peut pas être comparée à elle-même.")
+
+        source_question = await self._get_question_with_version(
+            form_id=form_id,
+            form_question_id=condition.source_question_id,
+            user_id=user_id,
+        )
+
+        if source_question is None:
+            raise ValueError(
+                f"La question source " f"{condition.source_question_id} " "est introuvable."
+            )
+
+        try:
+            operator = DependencyConditionOperator(condition.operator)
+        except ValueError:
+            raise ValueError(f"Opérateur de condition invalide : " f"{condition.operator}")
+
+        comparison_value = condition.comparison_value
+
+        # ---------------------------------------------------------
+        # Valeur constante
+        # ---------------------------------------------------------
+
+        if comparison_value is not None and comparison_value.source_type == "CONSTANT":
+            if comparison_value.value is None:
+                raise ValueError("Une comparaison de type CONSTANT " "doit fournir une valeur.")
+
+            validate_dependency_condition(
+                question_type=(source_question.question_version.question_type),
+                operator=operator,
+                comparison_value=comparison_value.value,
+            )
+
+            return
+
+        # ---------------------------------------------------------
+        # Valeur provenant d'une autre question
+        # ---------------------------------------------------------
+
+        if comparison_value is not None and comparison_value.source_type == "QUESTION":
+            if comparison_value.question_id is None:
+                raise ValueError("Une comparaison de type QUESTION " "doit fournir question_id.")
+
+            comparison_question = await self._get_question_with_version(
+                form_id=form_id,
+                form_question_id=(comparison_value.question_id),
+                user_id=user_id,
+            )
+
+            if comparison_question is None:
+                raise ValueError(
+                    f"La question de comparaison "
+                    f"{comparison_value.question_id} "
+                    "est introuvable."
+                )
+
+            self._validate_question_compatibility(
+                source_question=source_question,
+                comparison_question=comparison_question,
+                operator=operator,
+            )
+
+            return
+
+        raise ValueError("La condition doit définir une " "valeur de comparaison.")
+
+    async def _validate_condition_group(
+        self,
+        *,
+        group,
+        form_id: int,
+        user_id: int,
+    ):
+        try:
+            DependencyLogicalOperator(group.operator)
+        except ValueError:
+            raise ValueError(f"Opérateur logique invalide : " f"{group.operator}")
+
+        if not group.conditions and not group.groups:
+            raise ValueError("Un groupe de conditions ne peut pas être vide.")
+
+        for condition in group.conditions:
+            await self._validate_condition(
+                condition=condition,
+                form_id=form_id,
+                user_id=user_id,
+            )
+
+        for child_group in group.groups:
+            await self._validate_condition_group(
+                group=child_group,
+                form_id=form_id,
+                user_id=user_id,
+            )
+
+    async def _get_target_question(
+        self,
+        *,
+        form_id: int,
+        target_id: int,
+        user_id: int,
+    ):
+        question = await self._get_question_with_version(
+            form_id=form_id,
+            form_question_id=target_id,
+            user_id=user_id,
+        )
+
+        if question is None:
+            raise ValueError(f"La question cible {target_id} " "n'existe pas dans ce formulaire.")
+
+        return question
+
+    async def _get_target_section(
+        self,
+        *,
+        form_id: int,
+        target_id: int,
+        user_id: int,
+    ):
+        result = await self.session.execute(
+            select(FormSection).where(
+                FormSection.id == target_id,
+                FormSection.form_id == form_id,
+            )
+        )
+
+        section = result.scalar_one_or_none()
+
+        if section is None:
+            raise ValueError(f"La section cible {target_id} " "n'existe pas dans ce formulaire.")
+
+        return section
+
+    async def _validate_repeat_section_target(
+        self,
+        *,
+        section,
+        form_id: int,
+        user_id: int,
+    ):
+        config = section.config or {}
+
+        repeat_config = config.get("repeat")
+
+        if not isinstance(repeat_config, dict):
+            raise ValueError(
+                f"La section {section.id} " "ne possède pas de configuration " "de répétition."
+            )
+
+        count_source = repeat_config.get("count_source")
+
+        if not isinstance(count_source, dict):
+            raise ValueError(
+                f"La section {section.id} "
+                "doit définir une source pour "
+                "le nombre de répétitions."
+            )
+
+        if count_source.get("source_type") != "QUESTION":
+            raise ValueError("La source du nombre de répétitions " "doit être une question.")
+
+        question_id = count_source.get("question_id")
+
+        if not isinstance(question_id, int) or question_id <= 0:
+            raise ValueError(
+                "L'identifiant de la question source " "du nombre de répétitions est invalide."
+            )
+
+        source_question = await self._get_question_with_version(
+            form_id=form_id,
+            form_question_id=question_id,
+            user_id=user_id,
+        )
+
+        if source_question is None:
+            raise ValueError(
+                f"La question {question_id} "
+                "utilisée comme source du nombre "
+                "de répétitions n'existe pas."
+            )
+
+        if source_question.section_id == section.id:
+            raise ValueError(
+                "La question utilisée pour déterminer "
+                "le nombre de répétitions ne peut pas "
+                "appartenir à la section répétée."
+            )
+
+        question_type = source_question.question_version.question_type
+
+        if question_type.value != "INTEGER":
+            raise ValueError(
+                "La question source du nombre " "de répétitions doit être " "de type INTEGER."
+            )
+
+    async def _validate_action_target(
+        self,
+        *,
+        action,
+        form_id: int,
+        user_id: int,
+    ):
+        target_type = DependencyTargetType(action.target_type)
+
+        if action.target_id <= 0:
+            raise ValueError("L'identifiant de la cible doit être positif.")
+
+        if target_type == DependencyTargetType.QUESTION:
+            return await self._get_target_question(
+                form_id=form_id,
+                target_id=action.target_id,
+                user_id=user_id,
+            )
+
+        if target_type == DependencyTargetType.SECTION:
+            section = await self._get_target_section(
+                form_id=form_id,
+                target_id=action.target_id,
+                user_id=user_id,
+            )
+
+            if DependencyActionType(action.type) == DependencyActionType.REPEAT_SECTION:
+                await self._validate_repeat_section_target(
+                    section=section,
+                    form_id=form_id,
+                    user_id=user_id,
+                )
+
+            return section
+
+        raise ValueError(f"Type de cible non supporté : " f"{target_type.value}")
+
+    async def _validate_action(
+        self,
+        *,
+        action,
+        form_id: int,
+        user_id: int,
+    ):
+        try:
+            action_type = DependencyActionType(action.type)
+        except ValueError:
+            raise ValueError(f"Type d'action invalide : " f"{action.type}")
+
+        try:
+            target_type = DependencyTargetType(action.target_type)
+        except ValueError:
+            raise ValueError(f"Type de cible invalide : " f"{action.target_type}")
+
+        if action.target_id <= 0:
+            raise ValueError("L'identifiant de la cible doit être positif.")
+
+        self._validate_action_target_compatibility(
+            action_type=action_type,
+            target_type=target_type,
+        )
+
+        await self._validate_action_target(
+            action=action,
+            form_id=form_id,
+            user_id=user_id,
+        )
+
+        self._validate_action_config(
+            action_type=action_type,
+            config=action.config,
+        )
+
+    def _validate_action_config(
+        self,
+        *,
+        action_type,
+        config,
+    ):
+        if action_type in {
+            DependencyActionType.SHOW,
+            DependencyActionType.HIDE,
+            DependencyActionType.ENABLE,
+            DependencyActionType.DISABLE,
+            DependencyActionType.REQUIRE,
+            DependencyActionType.OPTIONAL,
+            DependencyActionType.READONLY,
+            DependencyActionType.EDITABLE,
+            DependencyActionType.CLEAR_VALUE,
+        }:
+            if config:
+                raise ValueError(
+                    f"L'action {action_type.value} " "ne doit pas avoir de configuration."
+                )
+
+            return
+
+        if action_type == DependencyActionType.SET_VALUE:
+            self._validate_set_value_config(config)
+            return
+
+        if action_type == DependencyActionType.COPY_VALUE:
+            self._validate_copy_value_config(config)
+            return
+
+        if action_type == DependencyActionType.FILTER_OPTIONS:
+            self._validate_filter_options_config(config)
+            return
+
+        if action_type == DependencyActionType.REPEAT_SECTION:
+            if not isinstance(config, dict):
+                raise ValueError("La configuration de REPEAT_SECTION " "doit être un objet.")
+
+            if "enabled" in config and not isinstance(
+                config["enabled"],
+                bool,
+            ):
+                raise ValueError("Le champ 'enabled' de REPEAT_SECTION " "doit être un booléen.")
+
+            return
+
+    def _validate_set_value_config(
+        self,
+        config,
+    ):
+        required = {"value"}
+
+        if not required.issubset(config.keys()):
+            raise ValueError("SET_VALUE nécessite une configuration " "contenant 'value'.")
+
+    def _validate_copy_value_config(
+        self,
+        config,
+    ):
+        source_question_id = config.get("source_question_id")
+
+        if not isinstance(
+            source_question_id,
+            int,
+        ):
+            raise ValueError("COPY_VALUE nécessite " "'source_question_id'.")
+
+    def _validate_filter_options_config(
+        self,
+        config,
+    ):
+        if not config.get("filter_field"):
+            raise ValueError("FILTER_OPTIONS nécessite " "'filter_field'.")
+
+        if "filter_value" not in config:
+            raise ValueError("FILTER_OPTIONS nécessite " "'filter_value'.")
+
+    async def _get_form_question(
+        self,
+        *,
+        form_id: int,
+        section_id: int,
+        form_question_id: int,
+        user_id: int,
+    ) -> FormQuestion | None:
+        form_result = await self.session.execute(
+            select(FormDefinition).where(
+                FormDefinition.id == form_id,
+                FormDefinition.created_by == user_id,
+            )
+        )
+
+        form = form_result.scalar_one_or_none()
+
+        if form is None:
+            return None
+
+        result = await self.session.execute(
+            select(FormQuestion).where(
+                FormQuestion.id == form_question_id,
+                FormQuestion.form_id == form_id,
+                FormQuestion.section_id == section_id,
+            )
+        )
+
+        return result.scalar_one_or_none()
+
+    async def _get_question_with_version(
+        self,
+        *,
+        form_id: int,
+        form_question_id: int,
+        user_id: int,
+    ) -> FormQuestion | None:
+        form_result = await self.session.execute(
+            select(FormDefinition).where(
+                FormDefinition.id == form_id,
+                FormDefinition.created_by == user_id,
+            )
+        )
+
+        form = form_result.scalar_one_or_none()
+
+        if form is None:
+            return None
+
+        result = await self.session.execute(
+            select(FormQuestion)
+            .options(
+                selectinload(
+                    FormQuestion.question_version,
+                ).selectinload(
+                    QuestionVersion.options,
+                ),
+            )
+            .where(
+                FormQuestion.id == form_question_id,
+                FormQuestion.form_id == form_id,
+            )
+        )
+
+        return result.scalars().first()
+
+    async def list(
+        self,
+        *,
+        form_id: int,
+        section_id: int,
+        target_question_id: int,
+        user_id: int,
+    ) -> list[FormQuestionDependency]:
+        target_question = await self._get_form_question(
+            form_question_id=target_question_id,
+            form_id=form_id,
+            section_id=section_id,
+            user_id=user_id,
+        )
+
+        if target_question is None:
+            raise ValueError("Question cible introuvable.")
+
+        result = await self.session.execute(
+            select(FormQuestionDependency)
+            .where(
+                FormQuestionDependency.target_question_id == target_question_id,
+            )
+            .order_by(
+                FormQuestionDependency.id.asc(),
+            )
+        )
+
+        return list(result.scalars().all())
+
+    async def create(
+        self,
+        *,
+        form_id: int,
+        section_id: int,
+        target_question_id: int,
+        user_id: int,
+        data: FormQuestionDependencyCreate,
+    ) -> FormQuestionDependency:
+        target_question = await self._get_form_question(
+            form_question_id=target_question_id,
+            form_id=form_id,
+            section_id=section_id,
+            user_id=user_id,
+        )
+
+        if target_question is None:
+            raise ValueError("Question cible introuvable.")
+
+        await self.validate_rule(
+            rule=data,
+            form_id=form_id,
+            user_id=user_id,
+        )
+
+        dependency = FormQuestionDependency(
+            target_question_id=target_question_id,
+            condition=data.condition.model_dump(),
+            actions_if_true=[action.model_dump() for action in data.actions_if_true],
+            actions_if_false=[action.model_dump() for action in data.actions_if_false],
+        )
+
+        self.session.add(dependency)
+
+        await self.session.flush()
+
+        return dependency
+
+    async def update(
+        self,
+        *,
+        form_id: int,
+        section_id: int,
+        target_question_id: int,
+        dependency_id: int,
+        user_id: int,
+        data: FormQuestionDependencyCreate,
+    ) -> FormQuestionDependency:
+        target_question = await self._get_form_question(
+            form_question_id=target_question_id,
+            form_id=form_id,
+            section_id=section_id,
+            user_id=user_id,
+        )
+
+        if target_question is None:
+            raise ValueError("Question cible introuvable.")
+
+        result = await self.session.execute(
+            select(FormQuestionDependency).where(
+                FormQuestionDependency.id == dependency_id,
+                FormQuestionDependency.target_question_id == target_question_id,
+            )
+        )
+
+        dependency = result.scalar_one_or_none()
+
+        if dependency is None:
+            raise ValueError("Dépendance introuvable.")
+
+        await self.validate_rule(
+            rule=data,
+            form_id=form_id,
+            user_id=user_id,
+        )
+
+        dependency.condition = data.condition.model_dump()
+
+        dependency.actions_if_true = [action.model_dump() for action in data.actions_if_true]
+
+        dependency.actions_if_false = [action.model_dump() for action in data.actions_if_false]
+
+        await self.session.flush()
+
+        return dependency
+
+    async def delete(
+        self,
+        *,
+        form_id: int,
+        section_id: int,
+        target_question_id: int,
+        dependency_id: int,
+        user_id: int,
+    ) -> None:
+        target_question = await self._get_form_question(
+            form_question_id=target_question_id,
+            form_id=form_id,
+            section_id=section_id,
+            user_id=user_id,
+        )
+
+        if target_question is None:
+            raise ValueError("Question cible introuvable.")
+
+        result = await self.session.execute(
+            select(FormQuestionDependency).where(
+                FormQuestionDependency.id == dependency_id,
+                FormQuestionDependency.target_question_id == target_question_id,
+            )
+        )
+
+        dependency = result.scalar_one_or_none()
+
+        if dependency is None:
+            raise ValueError("Dépendance introuvable.")
+
+        await self.session.delete(dependency)
+
+        await self.session.flush()
+
+    async def validate_rule(
+        self,
+        *,
+        rule,
+        form_id: int,
+        user_id: int,
+    ):
+        await self._validate_condition_group(
+            group=rule.condition,
+            form_id=form_id,
+            user_id=user_id,
+        )
+
+        for action in rule.actions_if_true:
+            await self._validate_action(
+                action=action,
+                form_id=form_id,
+                user_id=user_id,
+            )
+
+        for action in rule.actions_if_false:
+            await self._validate_action(
+                action=action,
+                form_id=form_id,
+                user_id=user_id,
+            )
+
+        if not rule.actions_if_true and not rule.actions_if_false:
+            raise ValueError("Une règle doit avoir au moins une action.")

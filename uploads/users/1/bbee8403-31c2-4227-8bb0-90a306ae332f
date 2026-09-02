@@ -1,0 +1,353 @@
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+
+from app.dependencies import (
+    CurrentUser,
+    get_formulaire_definition_service,
+)
+from app.models.user import User
+from app.schemas.common import ApiResponse, ok
+from app.schemas.file_system import FileNodeResponse
+from app.schemas.form_builder.formulaire_definition import (
+    FormulaireDefinitionCreate,
+    FormulaireDefinitionListResponse,
+    FormulaireDefinitionResponse,
+    FormulaireDefinitionUpdate,
+)
+from app.schemas.form_builder.formulaire_files import FormulaireFilesResponse
+from app.services.file_system import FileAlreadyExistsError, InvalidFileOperationError
+from app.services.form_builder.formulaire_defaults import normalize_formulaire_global_config
+from app.services.form_builder.formulaire_definition import (
+    FormulaireDefinitionService,
+)
+
+router = APIRouter(
+    prefix="/formulaires",
+    tags=["Formulaires"],
+)
+
+
+@router.post(
+    "",
+    response_model=ApiResponse[FormulaireDefinitionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_formulaire(
+    data: FormulaireDefinitionCreate,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        formulaire = await service.create(
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Formulaire créé avec succès.",
+            data=FormulaireDefinitionResponse.model_validate(
+                formulaire,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "",
+    response_model=ApiResponse[FormulaireDefinitionListResponse],
+)
+async def list_formulaires(
+    include_archived: bool = False,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    formulaires = await service.list(
+        user_id=user.id,
+        include_archived=include_archived,
+    )
+
+    return ok(
+        message="Formulaires récupérés avec succès.",
+        data=FormulaireDefinitionListResponse(
+            items=[
+                FormulaireDefinitionResponse.model_validate(
+                    formulaire,
+                )
+                for formulaire in formulaires
+            ],
+            count=len(formulaires),
+        ),
+    )
+
+
+@router.get(
+    "/{formulaire_id}",
+    response_model=ApiResponse[FormulaireDefinitionResponse],
+)
+async def get_formulaire(
+    formulaire_id: int,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    formulaire = await service.get(
+        formulaire_id=formulaire_id,
+        user_id=user.id,
+    )
+
+    if formulaire is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Formulaire introuvable.",
+        )
+
+    formulaire.global_config = normalize_formulaire_global_config(formulaire.global_config)
+
+    return ok(
+        message="Formulaire récupéré avec succès.",
+        data=FormulaireDefinitionResponse.model_validate(
+            formulaire,
+        ),
+    )
+
+
+@router.patch(
+    "/{formulaire_id}",
+    response_model=ApiResponse[FormulaireDefinitionResponse],
+)
+async def update_formulaire(
+    formulaire_id: int,
+    data: FormulaireDefinitionUpdate,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        formulaire = await service.update(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+            data=data,
+        )
+
+        return ok(
+            message="Formulaire modifié avec succès.",
+            data=FormulaireDefinitionResponse.model_validate(
+                formulaire,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/{formulaire_id}/archive",
+    response_model=ApiResponse[FormulaireDefinitionResponse],
+)
+async def archive_formulaire(
+    formulaire_id: int,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        formulaire = await service.archive(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+        )
+
+        return ok(
+            message="Formulaire archivé avec succès.",
+            data=FormulaireDefinitionResponse.model_validate(
+                formulaire,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete(
+    "/{formulaire_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_formulaire(
+    formulaire_id: int,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        await service.delete(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/{formulaire_id}/files",
+    response_model=ApiResponse[FormulaireFilesResponse],
+)
+async def list_formulaire_files(
+    formulaire_id: int,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        files = await service.list_formulaire_files(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+        )
+
+        response_items = [FileNodeResponse.model_validate(file) for file in files]
+
+        return ok(
+            message="Fichiers du formulaire récupérés avec succès.",
+            data=FormulaireFilesResponse(
+                items=response_items,
+                count=len(response_items),
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{formulaire_id}/files",
+    response_model=ApiResponse[FileNodeResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_formulaire_file(
+    formulaire_id: int,
+    file: UploadFile = File(...),
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le fichier ne possède aucun nom.",
+        )
+
+    filename = Path(file.filename).name
+
+    extension = Path(filename).suffix.lstrip(".").lower() or None
+
+    try:
+        formulaire_file = await service.upload_formulaire_file(
+            formulaire_id=formulaire_id,
+            user_id=user.id,
+            name=filename,
+            source=file.file,
+            mime_type=file.content_type,
+            extension=extension,
+        )
+
+        return ok(
+            message="Fichier ajouté au formulaire avec succès.",
+            data=FileNodeResponse.model_validate(
+                formulaire_file,
+            ),
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
+
+    except FileAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except InvalidFileOperationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete(
+    "/{formulaire_id}/files/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_formulaire_file(
+    formulaire_id: int,
+    file_id: int,
+    service: FormulaireDefinitionService = Depends(
+        get_formulaire_definition_service,
+    ),
+    user: User = CurrentUser,
+):
+    try:
+        await service.delete_formulaire_file(
+            formulaire_id=formulaire_id,
+            file_id=file_id,
+            user_id=user.id,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
