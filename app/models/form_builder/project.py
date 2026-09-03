@@ -12,6 +12,7 @@ from app.models.form_builder.enums import ProjectStatus
 
 if TYPE_CHECKING:
     from app.models.form_builder.form_definition import FormDefinition
+    from app.models.project_agent_assignment import ProjectAgentAssignment
     from app.models.user import User
 
 
@@ -114,6 +115,13 @@ class Project(Base):
 
     forms: Mapped[list["FormDefinition"]] = relationship(
         "FormDefinition",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    agent_assignments: Mapped[list["ProjectAgentAssignment"]] = relationship(
+        "ProjectAgentAssignment",
         back_populates="project",
         cascade="all, delete-orphan",
         lazy="selectin",

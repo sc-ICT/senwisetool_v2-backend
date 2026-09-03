@@ -27,6 +27,7 @@ from app.services.form_builder.question_bank import (
 )
 from app.services.form_builder.question_group import QuestionGroupService
 from app.services.project import ProjectService
+from app.services.project_agent_assignment import ProjectAgentAssignmentService
 from app.services.storage.local import LocalStorageService
 
 
@@ -194,6 +195,18 @@ def get_agent_service(
 ) -> AgentService:
     return AgentService(
         session=session,
+    )
+
+
+def get_project_agent_assignment_service(
+    session: AsyncSession = Depends(get_db),
+    file_system: FileSystemService = Depends(
+        get_file_system_service,
+    ),
+) -> ProjectAgentAssignmentService:
+    return ProjectAgentAssignmentService(
+        session=session,
+        file_system=file_system,
     )
 
 

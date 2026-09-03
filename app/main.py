@@ -20,6 +20,7 @@ from app.routes import (
     form_questions,
     form_sections,
     forms,
+    project_agent_assignments,
     projects,
     question_groups,
 )
@@ -140,26 +141,23 @@ app.include_router(question_groups.router)
 # ─── ROUTES DES PROJETS ───────────────────────────────────────────────────────
 app.include_router(projects.router)
 
+# ─── ROUTES DES AFFECTATIONS PROJET / AGENTS ─────────────────────────────────
+app.include_router(project_agent_assignments.router)
 
 # ─── ROUTES DU FORM ───────────────────────────────────────────────────────────
 app.include_router(forms.router)
 
-
 # ─── ROUTES DU FORM SECTION ───────────────────────────────────────────────────────────
 app.include_router(form_sections.router)
-
 
 # ─── ROUTES DU FORM QUESTION ───────────────────────────────────────────────────────────
 app.include_router(form_questions.router)
 
-
 # ─── ROUTES DU FORM DEPENDENCES ───────────────────────────────────────────────────────────
 app.include_router(form_question_dependencies_router)
 
-
 # ─── ROUTES DU FORM IMPORT QUESTIONS ───────────────────────────────────────────────────────────
 app.include_router(form_import.router)
-
 
 # ─── ROUTES DES AGENTS ───────────────────────────────────────────────────────────
 app.include_router(agents.router)

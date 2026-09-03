@@ -11,6 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import FileNodeType
 from app.models.file_node import FileNode
+from app.models.project_agent_assignment import (
+    ProjectAgentAssignmentZone,
+)
 from app.services.archive import ArchiveService
 from app.services.storage.base import StorageService
 
@@ -609,6 +612,40 @@ class FileSystemService:
             user_id=user_id,
             node_id=node_id,
         )
+
+        node_ids = [node.id for node in nodes]
+
+        result = await self.session.execute(
+            select(ProjectAgentAssignmentZone.file_node_id)
+            .where(
+                ProjectAgentAssignmentZone.file_node_id.in_(node_ids),
+            )
+            .limit(1)
+        )
+
+        used_zone_file_id = result.scalar_one_or_none()
+
+        if used_zone_file_id is not None:
+            raise InvalidFileOperationError(
+                "Ce fichier ou dossier contient une zone KML ou GEOJSON"
+                "encore utilisée par une affectation.",
+            )
+
+        node_ids = [node.id for node in nodes]
+
+        result = await self.session.execute(
+            select(ProjectAgentAssignmentZone.file_node_id)
+            .where(ProjectAgentAssignmentZone.file_node_id.in_(node_ids))
+            .limit(1)
+        )
+
+        used_zone_file_id = result.scalar_one_or_none()
+
+        if used_zone_file_id is not None:
+            raise InvalidFileOperationError(
+                "Ce fichier ou dossier contient une zone KML ou GEOJSON"
+                "encore utilisée par une affectation."
+            )
 
         # --------------------------------------------------------
         # 1. Supprimer les fichiers physiques

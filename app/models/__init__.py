@@ -10,6 +10,10 @@ from app.models.form_builder.question_option import (
 from app.models.form_builder.question_version import (
     QuestionVersion,
 )
+from app.models.project_agent_assignment import (
+    ProjectAgentAssignment,
+    ProjectAgentAssignmentZone,
+)
 from app.models.user import User
 
 __all__ = [
@@ -17,6 +21,8 @@ __all__ = [
     "Agent",
     "FileNode",
     "Project",
+    "ProjectAgentAssignment",
+    "ProjectAgentAssignmentZone",
     "QuestionDefinition",
     "QuestionVersion",
     "QuestionOption",

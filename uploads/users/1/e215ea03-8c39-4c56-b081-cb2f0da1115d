@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "name": "zones_forestieres",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Réserve forestière Sud A",
+        "type_zone": "reserve_forestiere",
+        "surface_km2": 48.6,
+        "statut_protection": "strict"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [11.8000, 3.2000],
+            [11.9200, 3.2000],
+            [11.9200, 3.3000],
+            [11.8000, 3.3000],
+            [11.8000, 3.2000]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Zone tampon B",
+        "type_zone": "zone_tampon",
+        "surface_km2": 12.3,
+        "statut_protection": "controle"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [11.9200, 3.2000],
+            [11.9600, 3.2000],
+            [11.9600, 3.2500],
+            [11.9200, 3.2500],
+            [11.9200, 3.2000]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Concession forestière C",
+        "type_zone": "concession_exploitation",
+        "surface_km2": 210.5,
+        "statut_protection": "exploitation_encadree"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [12.0500, 3.0500],
+            [12.2000, 3.0500],
+            [12.2000, 3.1800],
+            [12.0500, 3.1800],
+            [12.0500, 3.0500]
+          ]
+        ]
+      }
+    }
+  ]
+}
