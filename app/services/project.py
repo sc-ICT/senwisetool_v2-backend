@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import FileNodeType
-from app.models.form_builder.enums import ProjectStatus
+from app.models.form_builder.enums import FormStatus, ProjectStatus
+from app.models.form_builder.form_definition import FormDefinition
 from app.models.form_builder.project import Project
+from app.models.project_agent_assignment import ProjectAgentAssignment
 from app.schemas.project import ProjectCreate, ProjectUpdate
-from app.services.file_system import (
-    FileAlreadyExistsError,
-)
 from app.services.file_system import FileNotFoundError as FileSystemNotFoundError
 from app.services.file_system import (
     FileSystemService,
@@ -340,3 +339,97 @@ class ProjectService:
         await self.session.flush()
 
         return project
+
+    async def list_assigned_to_agent(
+        self,
+        *,
+        agent_id: int,
+    ) -> list[tuple[Project, int, object]]:
+        query = (
+            select(
+                Project,
+                func.count(FormDefinition.id).label(
+                    "published_form_count",
+                ),
+                ProjectAgentAssignment.created_at.label(
+                    "assigned_at",
+                ),
+            )
+            .join(
+                ProjectAgentAssignment,
+                ProjectAgentAssignment.project_id == Project.id,
+            )
+            .outerjoin(
+                FormDefinition,
+                (
+                    (FormDefinition.project_id == Project.id)
+                    & (FormDefinition.status == FormStatus.PUBLISHED)
+                ),
+            )
+            .where(
+                ProjectAgentAssignment.agent_id == agent_id,
+                Project.status == ProjectStatus.PUBLISHED,
+            )
+            .group_by(
+                Project.id,
+                ProjectAgentAssignment.created_at,
+            )
+            .order_by(
+                Project.updated_at.desc(),
+            )
+        )
+
+        result = await self.session.execute(query)
+
+        return [
+            (
+                project,
+                int(published_form_count),
+                assigned_at,
+            )
+            for project, published_form_count, assigned_at in result.all()
+        ]
+
+    async def get_assigned_to_agent(
+        self,
+        *,
+        project_id: int,
+        agent_id: int,
+    ) -> tuple[Project, object, list[FormDefinition]] | None:
+        project_result = await self.session.execute(
+            select(
+                Project,
+                ProjectAgentAssignment.created_at,
+            )
+            .join(
+                ProjectAgentAssignment,
+                ProjectAgentAssignment.project_id == Project.id,
+            )
+            .where(
+                Project.id == project_id,
+                ProjectAgentAssignment.agent_id == agent_id,
+                Project.status == ProjectStatus.PUBLISHED,
+            )
+        )
+
+        row = project_result.one_or_none()
+
+        if row is None:
+            return None
+
+        project, assigned_at = row
+
+        forms_result = await self.session.execute(
+            select(FormDefinition)
+            .where(
+                FormDefinition.project_id == project_id,
+                FormDefinition.status == FormStatus.PUBLISHED,
+            )
+            .order_by(
+                FormDefinition.name.asc(),
+            )
+        )
+
+        forms = list(forms_result.scalars().all())
+
+        return project, assigned_at, forms

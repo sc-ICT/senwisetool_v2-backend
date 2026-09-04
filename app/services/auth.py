@@ -70,6 +70,27 @@ def create_refresh_token(user_id: int) -> str:
     )
 
 
+def create_mobile_token(agent_id: int) -> str:
+    """
+    Génère un JWT pour l'authentification d'un agent mobile.
+
+    Le token identifie l'agent via :
+        sub  = agent.id
+        type = "mobile"
+
+    La durée de validité est définie par
+    settings.MOBILE_TOKEN_EXPIRE_DAYS.
+    """
+
+    return create_token(
+        payload={
+            "sub": str(agent_id),
+            "type": "mobile",
+        },
+        expires_delta=timedelta(days=settings.MOBILE_TOKEN_EXPIRE_DAYS),
+    )
+
+
 # ─── Utilitaires hash tokens opaques (reset, refresh stocké en base) ──────────
 # SHA-256 et non bcrypt : les tokens sont déjà des valeurs aléatoires longues,
 # bcrypt est inutile ici et limité à 72 octets.

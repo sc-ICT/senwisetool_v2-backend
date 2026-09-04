@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.enums import UserRole, UserStatus
+from app.schemas.agent import AgentResponse
 
 
 class RegisterRequest(BaseModel):
@@ -63,3 +64,33 @@ class LoginResponse(BaseModel):
     """Les tokens sont dans les cookies — on retourne seulement les infos utilisateur."""
 
     user: UserOut
+
+
+class MobileLoginRequest(BaseModel):
+    full_name: str = Field(
+        min_length=2,
+        max_length=255,
+    )
+    email: EmailStr
+    password: str = Field(
+        min_length=1,
+    )
+
+
+class MobileUserResponse(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+
+
+class MobileLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+    agent: AgentResponse
+    user: MobileUserResponse
+
+
+class MobileMeResponse(BaseModel):
+    agent: AgentResponse
+    user: MobileUserResponse

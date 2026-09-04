@@ -1,0 +1,69 @@
+{
+  "type": "FeatureCollection",
+  "name": "parcelles_agricoles",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id_parcelle": "PARC-A-001",
+        "culture": "cacao",
+        "surface_ha": 2.35,
+        "producteur": "Coopérative Nde"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [10.4700, 5.1200],
+            [10.4735, 5.1200],
+            [10.4735, 5.1230],
+            [10.4700, 5.1230],
+            [10.4700, 5.1200]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id_parcelle": "PARC-A-002",
+        "culture": "palmier_a_huile",
+        "surface_ha": 5.80,
+        "producteur": "Exploitation familiale Ekwa"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [10.4740, 5.1205],
+            [10.4790, 5.1205],
+            [10.4790, 5.1240],
+            [10.4740, 5.1240],
+            [10.4740, 5.1205]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id_parcelle": "PARC-A-003",
+        "culture": "cafe_robusta",
+        "surface_ha": 1.42,
+        "producteur": "Coopérative Nde"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [10.4680, 5.1180],
+            [10.4700, 5.1180],
+            [10.4700, 5.1200],
+            [10.4680, 5.1200],
+            [10.4680, 5.1180]
+          ]
+        ]
+      }
+    }
+  ]
+}

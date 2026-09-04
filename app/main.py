@@ -20,6 +20,7 @@ from app.routes import (
     form_questions,
     form_sections,
     forms,
+    mobile_projects,
     project_agent_assignments,
     projects,
     question_groups,
@@ -42,7 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title=settings.APP_NAME,
     description="API de gestion de formulaires et collecte de données sur le terrain.",
-    version="1.0.0",
+    version="3.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -108,7 +109,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 async def root() -> dict:
     return {
         "app": settings.APP_NAME,
-        "version": "1.0.0",
+        "version": "3.0.0",
         "status": "running",
         "docs": "/docs",
     }
@@ -121,10 +122,6 @@ async def health() -> dict:
 
 # ─── ROUTES D'AUTHENTIFICATION ───────────────────────────────────────────────────────────
 app.include_router(auth.router)
-
-
-# ─── ROUTES DU FILE SYSTEM ───────────────────────────────────────────────────────────
-app.include_router(file_system.router)
 
 
 # ─── ROUTES DU FILE SYSTEM ───────────────────────────────────────────────────────────
@@ -161,3 +158,7 @@ app.include_router(form_import.router)
 
 # ─── ROUTES DES AGENTS ───────────────────────────────────────────────────────────
 app.include_router(agents.router)
+
+
+# ─── ROUTES DES PROJETS MOBILES ───────────────────────────────────────────────────────────
+app.include_router(mobile_projects.router)

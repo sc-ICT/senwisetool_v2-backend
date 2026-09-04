@@ -1,0 +1,66 @@
+{
+  "type": "FeatureCollection",
+  "name": "zones_administratives",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Arrondissement de Yaoundé I",
+        "region": "Centre",
+        "population_est": 210000
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [11.4950, 3.8600],
+            [11.5300, 3.8600],
+            [11.5300, 3.8900],
+            [11.4950, 3.8900],
+            [11.4950, 3.8600]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Arrondissement de Douala III",
+        "region": "Littoral",
+        "population_est": 385000
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [9.6600, 4.0200],
+            [9.7100, 4.0200],
+            [9.7100, 4.0600],
+            [9.6600, 4.0600],
+            [9.6600, 4.0200]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "nom": "Commune de Bafoussam I",
+        "region": "Ouest",
+        "population_est": 95000
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [10.4000, 5.4600],
+            [10.4400, 5.4600],
+            [10.4400, 5.4950],
+            [10.4000, 5.4950],
+            [10.4000, 5.4600]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -47,8 +47,8 @@ class Agent(Base):
         index=True,
     )
 
-    token: Mapped[str] = mapped_column(
-        String(64),
+    token: Mapped[str | None] = mapped_column(
+        String(1024),
         nullable=True,
         unique=True,
         index=True,
