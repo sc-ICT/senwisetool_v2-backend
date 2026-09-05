@@ -24,6 +24,7 @@ from app.routes import (
     project_agent_assignments,
     projects,
     question_groups,
+    submissions,
 )
 from app.routes.form_question_dependencies import (
     router as form_question_dependencies_router,
@@ -162,3 +163,7 @@ app.include_router(agents.router)
 
 # ─── ROUTES DES PROJETS MOBILES ───────────────────────────────────────────────────────────
 app.include_router(mobile_projects.router)
+
+
+# ─── ROUTES DES SOUMISSIONS MOBILES ──────────────────────────────────────────
+app.include_router(submissions.router)

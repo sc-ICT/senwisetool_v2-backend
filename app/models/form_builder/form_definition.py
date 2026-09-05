@@ -13,6 +13,7 @@ from app.models.form_builder.enums import FormStatus
 if TYPE_CHECKING:
     from app.models.form_builder.form_section import FormSection
     from app.models.form_builder.project import Project
+    from app.models.submission import Submission
     from app.models.user import User
 
 
@@ -126,4 +127,10 @@ class FormDefinition(Base):
         "FileNode",
         foreign_keys=[form_folder_id],
         lazy="raise",
+    )
+
+    submissions: Mapped[list["Submission"]] = relationship(
+        "Submission",
+        back_populates="form",
+        lazy="selectin",
     )

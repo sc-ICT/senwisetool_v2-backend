@@ -32,6 +32,7 @@ from app.services.mobile_project import MobileProjectService
 from app.services.project import ProjectService
 from app.services.project_agent_assignment import ProjectAgentAssignmentService
 from app.services.storage.local import LocalStorageService
+from app.services.submission import SubmissionService
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -222,6 +223,14 @@ def get_mobile_project_service(
     return MobileProjectService(
         session=session,
         file_system_service=file_system_service,
+    )
+
+
+def get_submission_service(
+    session: AsyncSession = Depends(get_db),
+) -> SubmissionService:
+    return SubmissionService(
+        session=session,
     )
 
 

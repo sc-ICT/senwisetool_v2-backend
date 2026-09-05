@@ -11,6 +11,7 @@ from app.models.enums import AgentRole, AgentStatus
 
 if TYPE_CHECKING:
     from app.models.project_agent_assignment import ProjectAgentAssignment
+    from app.models.submission import Submission
     from app.models.user import User
 
 
@@ -90,5 +91,11 @@ class Agent(Base):
         "ProjectAgentAssignment",
         back_populates="agent",
         cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    submissions: Mapped[list["Submission"]] = relationship(
+        "Submission",
+        back_populates="agent",
         lazy="selectin",
     )

@@ -14,6 +14,8 @@ from app.models.project_agent_assignment import (
     ProjectAgentAssignment,
     ProjectAgentAssignmentZone,
 )
+from app.models.submission import Submission
+from app.models.submission_answer import SubmissionAnswer
 from app.models.user import User
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "QuestionDefinition",
     "QuestionVersion",
     "QuestionOption",
+    "Submission",
+    "SubmissionAnswer",
 ]
