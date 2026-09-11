@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import AsyncSessionLocal, get_db
 from app.models.agent import Agent
-from app.models.enums import AgentStatus
+from app.models.enums import AgentStatus, UserRole
 from app.models.user import User
 from app.services.agent import AgentService
 from app.services.archive import ArchiveService
@@ -29,6 +29,9 @@ from app.services.form_builder.question_bank import (
 )
 from app.services.form_builder.question_group import QuestionGroupService
 from app.services.mobile_project import MobileProjectService
+from app.services.plugin import PluginService
+from app.services.plugin_resource import PluginResourceService
+from app.services.plugin_resource_import import PluginResourceImportService
 from app.services.project import ProjectService
 from app.services.project_agent_assignment import ProjectAgentAssignmentService
 from app.services.storage.local import LocalStorageService
@@ -324,6 +327,52 @@ async def get_current_agent(
 
 
 CurrentAgent = Depends(get_current_agent)
+
+
+async def get_current_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    """
+    Vérifie que l'utilisateur authentifié possède les droits ADMIN.
+    """
+
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès réservé aux administrateurs.",
+        )
+
+    return user
+
+
+CurrentAdmin = Depends(get_current_admin)
+
+
+def get_plugin_service(
+    session: AsyncSession = Depends(get_db),
+) -> PluginService:
+    return PluginService(
+        session=session,
+    )
+
+
+def get_plugin_resource_service(
+    session: AsyncSession = Depends(get_db),
+) -> PluginResourceService:
+    return PluginResourceService(
+        session=session,
+    )
+
+
+def get_plugin_resource_import_service(
+    resource_service: PluginResourceService = Depends(
+        get_plugin_resource_service,
+    ),
+) -> PluginResourceImportService:
+    return PluginResourceImportService(
+        resource_service=resource_service,
+    )
+
 
 # async def get_current_agent(
 #     db: AsyncSession = Depends(get_db),

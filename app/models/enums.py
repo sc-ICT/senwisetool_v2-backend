@@ -31,6 +31,67 @@ class FileNodeType(str, enum.Enum):
     FILE = "FILE"
 
 
+class PluginStatus(str, enum.Enum):
+    """
+    Statut global d'un plugin dans la plateforme.
+    """
+
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    UNPUBLISHED = "UNPUBLISHED"
+    ARCHIVED = "ARCHIVED"
+
+
+class PluginVersionStatus(str, enum.Enum):
+    """
+    Statut d'une version particulière d'un plugin.
+    """
+
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    DEPRECATED = "DEPRECATED"
+
+
+class PluginResourceScope(str, enum.Enum):
+    """
+    Définit à qui appartient la ressource.
+
+    GLOBAL :
+        Ressource administrée par la plateforme et commune
+        à tous les utilisateurs du plugin.
+
+    USER :
+        Ressource appartenant à l'utilisateur.
+        Le plugin fournit néanmoins un schema par défaut.
+    """
+
+    GLOBAL = "GLOBAL"
+    USER = "USER"
+
+
+class PluginFieldType(str, enum.Enum):
+    """
+    Types de champs disponibles dans le moteur de ressources.
+
+    Cette liste constitue le noyau générique du moteur.
+    Un plugin peut utiliser n'importe quelle combinaison.
+    """
+
+    TEXT = "TEXT"
+    LONG_TEXT = "LONG_TEXT"
+    NUMBER = "NUMBER"
+    DECIMAL = "DECIMAL"
+    BOOLEAN = "BOOLEAN"
+    DATE = "DATE"
+    DATETIME = "DATETIME"
+    EMAIL = "EMAIL"
+    PHONE = "PHONE"
+    COUNTRY = "COUNTRY"
+    SINGLE_CHOICE = "SINGLE_CHOICE"
+    MULTIPLE_CHOICE = "MULTIPLE_CHOICE"
+    URL = "URL"
+
+
 # class FormStatus(str, enum.Enum):
 #     DRAFT = "DRAFT"  # en cours de construction
 #     PUBLISHED = "PUBLISHED"  # publié, prêt à être déployé

@@ -10,6 +10,16 @@ from app.models.form_builder.question_option import (
 from app.models.form_builder.question_version import (
     QuestionVersion,
 )
+from app.models.plugin import (
+    Plugin,
+    PluginResource,
+    PluginResourceField,
+    PluginVersion,
+)
+from app.models.plugin_resource_data import (
+    PluginResourceRecord,
+    PluginResourceUserSchema,
+)
 from app.models.project_agent_assignment import (
     ProjectAgentAssignment,
     ProjectAgentAssignmentZone,
@@ -30,4 +40,10 @@ __all__ = [
     "QuestionOption",
     "Submission",
     "SubmissionAnswer",
+    "Plugin",
+    "PluginVersion",
+    "PluginResource",
+    "PluginResourceField",
+    "PluginResourceRecord",
+    "PluginResourceUserSchema",
 ]

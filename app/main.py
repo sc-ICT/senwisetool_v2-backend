@@ -21,6 +21,8 @@ from app.routes import (
     form_sections,
     forms,
     mobile_projects,
+    plugin_resources,
+    plugins,
     project_agent_assignments,
     projects,
     question_groups,
@@ -124,6 +126,9 @@ async def health() -> dict:
 # ─── ROUTES D'AUTHENTIFICATION ───────────────────────────────────────────────────────────
 app.include_router(auth.router)
 
+# ─── ROUTES DES PLUGINS ───────────────────────────────────────────────────────
+app.include_router(plugins.router)
+app.include_router(plugin_resources.router)
 
 # ─── ROUTES DU FILE SYSTEM ───────────────────────────────────────────────────────────
 app.include_router(file_system.router)
