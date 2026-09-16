@@ -277,6 +277,69 @@ class PluginResourceListResponse(BaseModel):
 
 
 # ============================================================================
+# RESOURCE RELATIONS
+# ============================================================================
+
+
+class PluginResourceRelationCreate(BaseModel):
+    source_field_key: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    target_resource_id: int = Field(
+        gt=0,
+    )
+
+    target_field_key: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    label: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    is_active: bool = True
+
+
+class PluginResourceRelationResponse(BaseModel):
+    id: int
+
+    source_resource_id: int
+    source_field_key: str
+
+    target_resource_id: int
+    target_field_key: str
+
+    source_resource_name: str
+    target_resource_name: str
+
+    label: str | None
+
+    is_active: bool
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class PluginResourceRelatedRecordsResponse(BaseModel):
+    relation_id: int
+
+    source_resource_id: int
+    source_record_id: int
+
+    target_resource_id: int
+
+    direction: str
+
+    items: list[PluginResourceRecordResponse]
+
+    count: int
+
+
+# ============================================================================
 # EFFECTIVE SCHEMA
 # ============================================================================
 
@@ -386,3 +449,29 @@ class PluginResourceImportResponse(BaseModel):
     rejected: int
 
     errors: list[PluginResourceImportError]
+
+
+# ============================================================================
+# FULL WORKBOOK IMPORT
+# ============================================================================
+
+
+class PluginResourceWorkbookImportResponse(BaseModel):
+    plugin_id: int
+
+    sheets: int
+
+    resources_created: int
+    resources_updated: int
+
+    schemas_created: int
+    schemas_updated: int
+
+    relations_created: int
+    relations_existing: int
+
+    records_imported: int
+
+    errors: list[PluginResourceImportError] = Field(
+        default_factory=list,
+    )

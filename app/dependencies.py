@@ -31,6 +31,10 @@ from app.services.form_builder.question_group import QuestionGroupService
 from app.services.mobile_project import MobileProjectService
 from app.services.plugin import PluginService
 from app.services.plugin_resource import PluginResourceService
+from app.services.plugin_resource_definition_import import (
+    PluginResourceDefinitionImportService,
+)
+from app.services.plugin_resource_export import PluginResourceExportService
 from app.services.plugin_resource_import import PluginResourceImportService
 from app.services.project import ProjectService
 from app.services.project_agent_assignment import ProjectAgentAssignmentService
@@ -370,6 +374,26 @@ def get_plugin_resource_import_service(
     ),
 ) -> PluginResourceImportService:
     return PluginResourceImportService(
+        resource_service=resource_service,
+    )
+
+
+def get_plugin_resource_definition_import_service(
+    resource_service: PluginResourceService = Depends(
+        get_plugin_resource_service,
+    ),
+) -> PluginResourceDefinitionImportService:
+    return PluginResourceDefinitionImportService(
+        resource_service=resource_service,
+    )
+
+
+def get_plugin_resource_export_service(
+    resource_service: PluginResourceService = Depends(
+        get_plugin_resource_service,
+    ),
+) -> PluginResourceExportService:
+    return PluginResourceExportService(
         resource_service=resource_service,
     )
 

@@ -20,6 +20,7 @@ from app.models.plugin import (
     PluginResourceField,
     PluginVersion,
 )
+from app.models.plugin_resource_relation import PluginResourceRelation
 from app.schemas.plugin import (
     PluginCreate,
     PluginUpdate,
@@ -125,12 +126,29 @@ class PluginService:
             "name": resource.name,
             "description": resource.description,
             "scope": resource.scope.value,
-            "allow_user_schema_override": (resource.allow_user_schema_override),
+            "allow_user_schema_override": resource.allow_user_schema_override,
             "schema_definition": resource.schema_definition or {},
             "position": resource.position,
             "icon": resource.icon,
             "is_active": resource.is_active,
             "fields": [cls._serialize_field(field) for field in fields],
+            "relations": [
+                {
+                    "source_field_key": relation.source_field_key,
+                    "target_resource_key": relation.target_resource.key,
+                    "target_field_key": relation.target_field_key,
+                    "label": relation.label,
+                    "is_active": relation.is_active,
+                }
+                for relation in sorted(
+                    resource.outgoing_relations,
+                    key=lambda relation: (
+                        relation.source_field_key,
+                        relation.target_resource_id,
+                        relation.target_field_key,
+                    ),
+                )
+            ],
         }
 
     @classmethod

@@ -20,6 +20,7 @@ from app.models.plugin_resource_data import (
     PluginResourceRecord,
     PluginResourceUserSchema,
 )
+from app.models.plugin_resource_relation import PluginResourceRelation
 from app.models.project_agent_assignment import (
     ProjectAgentAssignment,
     ProjectAgentAssignmentZone,
@@ -46,4 +47,5 @@ __all__ = [
     "PluginResourceField",
     "PluginResourceRecord",
     "PluginResourceUserSchema",
+    "PluginResourceRelation",
 ]

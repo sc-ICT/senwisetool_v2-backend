@@ -26,6 +26,7 @@ from app.models.enums import (
 )
 
 if TYPE_CHECKING:
+    from app.models.plugin_resource_relation import PluginResourceRelation
     from app.models.user import User
 
 
@@ -499,6 +500,22 @@ class PluginResource(Base):
         back_populates="resource",
         cascade="all, delete-orphan",
         order_by="PluginResourceField.position.asc()",
+        lazy="selectin",
+    )
+
+    outgoing_relations: Mapped[list["PluginResourceRelation"]] = relationship(
+        "PluginResourceRelation",
+        foreign_keys="PluginResourceRelation.source_resource_id",
+        back_populates="source_resource",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    incoming_relations: Mapped[list["PluginResourceRelation"]] = relationship(
+        "PluginResourceRelation",
+        foreign_keys="PluginResourceRelation.target_resource_id",
+        back_populates="target_resource",
+        cascade="all, delete-orphan",
         lazy="selectin",
     )
 

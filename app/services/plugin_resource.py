@@ -22,12 +22,14 @@ from app.models.plugin_resource_data import (
     PluginResourceRecord,
     PluginResourceUserSchema,
 )
+from app.models.plugin_resource_relation import PluginResourceRelation
 from app.schemas.plugin_resource import (
     PluginResourceCreate,
     PluginResourceFieldCreate,
     PluginResourceFieldUpdate,
     PluginResourceRecordCreate,
     PluginResourceRecordUpdate,
+    PluginResourceRelationCreate,
     PluginResourceUpdate,
     PluginResourceUserSchemaUpdate,
 )
@@ -126,6 +128,133 @@ class PluginResourceService:
             )
 
         return plugin
+
+    async def _validate_record_relations(
+        self,
+        *,
+        resource: PluginResource,
+        data: dict[str, Any],
+        user_id: int,
+        owner_id: int | None,
+        is_admin: bool,
+        exclude_record_id: int | None = None,
+        pending_records: list[dict[str, Any]] | None = None,
+    ) -> None:
+
+        result = await self.session.execute(
+            select(PluginResourceRelation).where(
+                PluginResourceRelation.is_active.is_(True),
+                or_(
+                    PluginResourceRelation.source_resource_id == resource.id,
+                    PluginResourceRelation.target_resource_id == resource.id,
+                ),
+            )
+        )
+
+        relations = list(
+            result.scalars().all(),
+        )
+
+        for relation in relations:
+
+            # ====================================================================
+            # RESOURCE = SOURCE
+            # ====================================================================
+
+            if relation.source_resource_id == resource.id:
+
+                value = data.get(
+                    relation.source_field_key,
+                )
+
+                if self._is_empty(value):
+                    continue
+
+                target_resource = await self._get_resource_or_fail(
+                    resource_id=relation.target_resource_id,
+                )
+
+                target_records = await self._get_visible_records_for_relation(
+                    resource=target_resource,
+                    user_id=user_id,
+                    is_admin=is_admin,
+                )
+
+                exists = any(
+                    self._relation_values_equal(
+                        target_record.data.get(
+                            relation.target_field_key,
+                        ),
+                        value,
+                    )
+                    for target_record in target_records
+                )
+
+                if not exists:
+                    raise ValueError(
+                        f"La valeur « {value} » du champ "
+                        f"« {relation.source_field_key} » "
+                        f"n'existe pas dans la ressource "
+                        f"« {target_resource.name} ».",
+                    )
+
+            # ====================================================================
+            # RESOURCE = TARGET
+            # ====================================================================
+
+            if relation.target_resource_id == resource.id:
+
+                value = data.get(
+                    relation.target_field_key,
+                )
+
+                if self._is_empty(value):
+                    continue
+
+                existing_records = await self._get_visible_records_for_relation(
+                    resource=resource,
+                    user_id=user_id,
+                    is_admin=is_admin,
+                )
+
+                for existing in existing_records:
+
+                    if exclude_record_id is not None and existing.id == exclude_record_id:
+                        continue
+
+                    existing_value = (existing.data or {}).get(
+                        relation.target_field_key,
+                    )
+
+                    if self._relation_values_equal(
+                        existing_value,
+                        value,
+                    ):
+                        raise ValueError(
+                            f"La valeur « {value} » du champ "
+                            f"« {relation.target_field_key} » "
+                            "est déjà utilisée par une autre donnée. "
+                            "Ce champ doit être unique car il est référencé "
+                            "par une autre ressource.",
+                        )
+
+                if pending_records:
+
+                    for pending in pending_records:
+
+                        pending_value = pending.get(
+                            relation.target_field_key,
+                        )
+
+                        if self._relation_values_equal(
+                            pending_value,
+                            value,
+                        ):
+                            raise ValueError(
+                                f"La valeur « {value} » du champ "
+                                f"« {relation.target_field_key} » "
+                                "est dupliquée dans l'import.",
+                            )
 
     # ========================================================================
     # RESOURCE CREATE
@@ -321,23 +450,44 @@ class PluginResourceService:
             plugin,
         )
 
-        self._validate_field(
-            data,
-        )
+        self._validate_field(data)
 
         await self._ensure_field_key_available(
             resource_id=resource_id,
             key=data.key.strip(),
         )
 
+        # ------------------------------------------------------------------------
+        # Vérification de cohérence avec les données existantes
+        # ------------------------------------------------------------------------
+
+        records = await self._get_all_records(
+            resource_id=resource_id,
+        )
+
+        if records and data.required and data.default_value is None:
+            raise ValueError(
+                f"Impossible d'ajouter le champ « {data.label} » comme "
+                "obligatoire car la ressource contient déjà des données. "
+                "Définissez une valeur par défaut ou rendez le champ facultatif."
+            )
+
+        # ------------------------------------------------------------------------
+        # La valeur par défaut doit elle-même respecter le nouveau champ.
+        # ------------------------------------------------------------------------
+
+        if data.default_value is not None:
+            self._validate_value(
+                field=data.model_dump(mode="json"),
+                value=data.default_value,
+            )
+
         field = self._build_field(
             resource_id=resource_id,
             data=data,
         )
 
-        self.session.add(
-            field,
-        )
+        self.session.add(field)
 
         await self.session.flush()
 
@@ -345,8 +495,43 @@ class PluginResourceService:
             resource_id,
         )
 
+        new_field = self._field_to_dict(field)
+
+        # ------------------------------------------------------------------------
+        # Migration des données existantes
+        # ------------------------------------------------------------------------
+
+        if records:
+            for record in records:
+                migrated_data = dict(record.data or {})
+
+                if data.default_value is not None:
+                    migrated_data[data.key.strip()] = data.default_value
+                else:
+                    migrated_data[data.key.strip()] = None
+
+                # Validation finale avec le nouveau schema.
+                self.validate_record(
+                    schema=self._resource_schema(resource),
+                    data=migrated_data,
+                )
+
+                record.data = migrated_data
+
+            await self.session.flush()
+
+        # ------------------------------------------------------------------------
+        # Propagation vers les overrides USER
+        # ------------------------------------------------------------------------
+
+        if resource.scope == PluginResourceScope.USER:
+            await self._propagate_admin_field_addition(
+                resource_id=resource_id,
+                field=new_field,
+            )
+
         return await self._reload(
-            resource_id,
+            resource.id,
         )
 
     # ========================================================================
@@ -387,70 +572,210 @@ class PluginResourceService:
                 "Champ introuvable.",
             )
 
-        self._validate_partial_field(
-            data,
-        )
+        self._validate_partial_field(data)
+
+        # ------------------------------------------------------------------------
+        # Construire une copie prospective du champ.
+        # On ne modifie PAS encore SQLAlchemy.
+        # ------------------------------------------------------------------------
+
+        prospective = self._field_to_dict(field)
 
         if data.key is not None:
-            new_key = data.key.strip()
-
-            if new_key != field.key:
-                await self._ensure_field_key_available(
-                    resource_id=resource_id,
-                    key=new_key,
-                    exclude_field_id=field_id,
-                )
-
-            field.key = new_key
+            prospective["key"] = data.key.strip()
 
         if data.label is not None:
-            field.label = data.label.strip()
+            prospective["label"] = data.label.strip()
 
         if data.description is not None:
-            field.description = data.description
+            prospective["description"] = data.description
 
         if data.field_type is not None:
-            field.field_type = data.field_type
+            prospective["field_type"] = (
+                data.field_type.value if hasattr(data.field_type, "value") else data.field_type
+            )
 
         if data.required is not None:
-            field.required = data.required
+            prospective["required"] = data.required
 
         if "min_length" in data.model_fields_set:
-            field.min_length = data.min_length
+            prospective["min_length"] = data.min_length
 
         if "max_length" in data.model_fields_set:
-            field.max_length = data.max_length
+            prospective["max_length"] = data.max_length
 
         if "min_value" in data.model_fields_set:
-            field.min_value = data.min_value
+            prospective["min_value"] = data.min_value
 
         if "max_value" in data.model_fields_set:
-            field.max_value = data.max_value
+            prospective["max_value"] = data.max_value
 
         if "pattern" in data.model_fields_set:
-            field.pattern = data.pattern
+            prospective["pattern"] = data.pattern
 
         if data.options is not None:
-            field.options = data.options
+            prospective["options"] = data.options
 
         if "default_value" in data.model_fields_set:
-            field.default_value = data.default_value
+            prospective["default_value"] = data.default_value
 
         if data.position is not None:
-            field.position = data.position
+            prospective["position"] = data.position
 
         if data.is_active is not None:
-            field.is_active = data.is_active
+            prospective["is_active"] = data.is_active
 
-        self._validate_model_field_values(
-            field,
+        # ------------------------------------------------------------------------
+        # Validation complète du champ prospectif.
+        # ------------------------------------------------------------------------
+
+        prospective_model = PluginResourceFieldCreate(
+            **prospective,
         )
+
+        self._validate_field(
+            prospective_model,
+        )
+
+        old_key = field.key
+        new_key = prospective["key"]
+
+        if new_key != old_key:
+            await self._ensure_field_key_available(
+                resource_id=resource_id,
+                key=new_key,
+                exclude_field_id=field_id,
+            )
+
+        # ------------------------------------------------------------------------
+        # Récupérer les données existantes.
+        # ------------------------------------------------------------------------
+
+        records = await self._get_all_records(
+            resource_id=resource_id,
+        )
+
+        # ------------------------------------------------------------------------
+        # Construire le schema prospectif.
+        # ------------------------------------------------------------------------
+
+        current_fields = [
+            self._field_to_dict(existing) for existing in resource.fields if existing.id != field.id
+        ]
+
+        current_fields.append(
+            prospective,
+        )
+
+        current_fields.sort(
+            key=lambda item: item.get(
+                "position",
+                0,
+            )
+        )
+
+        prospective_schema = {
+            "version": 1,
+            "fields": current_fields,
+        }
+
+        # ------------------------------------------------------------------------
+        # Migration des données.
+        # ------------------------------------------------------------------------
+
+        migration_map: dict[str, tuple[str, Any]] = {}
+
+        if old_key != new_key:
+            migration_map[old_key] = (
+                new_key,
+                prospective.get("default_value"),
+            )
+
+        migrated_data: list[dict[str, Any]] = []
+
+        for record in records:
+
+            current = dict(record.data or {})
+
+            # Renommage.
+            if old_key != new_key and old_key in current:
+                current[new_key] = current.pop(old_key)
+
+            # Nouveau champ obligatoire sans valeur existante.
+            value_exists = new_key in current and not self._is_empty(
+                current[new_key],
+            )
+
+            if not value_exists:
+
+                if prospective.get("required", False):
+
+                    if prospective.get("default_value") is None:
+                        raise ValueError(
+                            f"Impossible de rendre le champ "
+                            f"« {prospective['label']} » obligatoire : "
+                            "certaines données existantes n'ont pas de valeur "
+                            "pour ce champ. Définissez une valeur par défaut."
+                        )
+
+                    current[new_key] = prospective["default_value"]
+
+                elif new_key not in current:
+                    current[new_key] = None
+
+            # Validation stricte de la donnée avec le nouveau schema.
+            self.validate_record(
+                schema=prospective_schema,
+                data=current,
+            )
+
+            migrated_data.append(current)
+
+        # ------------------------------------------------------------------------
+        # Appliquer maintenant la modification.
+        # ------------------------------------------------------------------------
+
+        field.key = prospective["key"]
+        field.label = prospective["label"]
+        field.description = prospective["description"]
+        field.field_type = (
+            prospective["field_type"]
+            if isinstance(prospective["field_type"], PluginFieldType)
+            else PluginFieldType(prospective["field_type"])
+        )
+        field.required = prospective["required"]
+        field.min_length = prospective["min_length"]
+        field.max_length = prospective["max_length"]
+        field.min_value = prospective["min_value"]
+        field.max_value = prospective["max_value"]
+        field.pattern = prospective["pattern"]
+        field.options = prospective["options"]
+        field.default_value = prospective["default_value"]
+        field.position = prospective["position"]
+        field.is_active = prospective["is_active"]
 
         await self.session.flush()
 
         await self._sync_schema_definition(
             resource_id,
         )
+
+        if records:
+            await self._apply_record_data_migration(
+                records=records,
+                migrated_data=migrated_data,
+            )
+
+        # ------------------------------------------------------------------------
+        # Propager la modification admin aux overrides USER.
+        # ------------------------------------------------------------------------
+
+        if resource.scope == PluginResourceScope.USER:
+            await self._propagate_admin_field_update(
+                resource_id=resource_id,
+                old_key=old_key,
+                field=self._field_to_dict(field),
+            )
 
         return await self._reload(
             resource_id,
@@ -493,6 +818,54 @@ class PluginResourceService:
                 "Champ introuvable.",
             )
 
+        field_key = field.key
+
+        records = await self._get_all_records(
+            resource_id=resource_id,
+        )
+
+        # ------------------------------------------------------------------------
+        # Construire le schema après suppression.
+        # ------------------------------------------------------------------------
+
+        remaining_fields = [
+            self._field_to_dict(existing) for existing in resource.fields if existing.id != field_id
+        ]
+
+        remaining_fields.sort(
+            key=lambda item: item.get(
+                "position",
+                0,
+            )
+        )
+
+        prospective_schema = {
+            "version": 1,
+            "fields": remaining_fields,
+        }
+
+        migrated_data: list[dict[str, Any]] = []
+
+        for record in records:
+
+            current = dict(record.data or {})
+
+            current.pop(
+                field_key,
+                None,
+            )
+
+            self.validate_record(
+                schema=prospective_schema,
+                data=current,
+            )
+
+            migrated_data.append(current)
+
+        # ------------------------------------------------------------------------
+        # Suppression.
+        # ------------------------------------------------------------------------
+
         await self.session.delete(
             field,
         )
@@ -502,6 +875,18 @@ class PluginResourceService:
         await self._sync_schema_definition(
             resource_id,
         )
+
+        if records:
+            await self._apply_record_data_migration(
+                records=records,
+                migrated_data=migrated_data,
+            )
+
+        if resource.scope == PluginResourceScope.USER:
+            await self._propagate_admin_field_delete(
+                resource_id=resource_id,
+                field_key=field_key,
+            )
 
         return await self._reload(
             resource_id,
@@ -599,6 +984,11 @@ class PluginResourceService:
             resource_id=resource_id,
         )
 
+        if not resource.fields:
+            raise ValueError(
+                "Impossible d'ajouter une donnée : " "la ressource ne possède encore aucun champ."
+            )
+
         owner_id: int | None
 
         if resource.scope == PluginResourceScope.GLOBAL:
@@ -636,6 +1026,14 @@ class PluginResourceService:
         normalized = self.validate_record(
             schema=schema,
             data=data.data,
+        )
+
+        await self._validate_record_relations(
+            resource=resource,
+            data=normalized,
+            user_id=user_id,
+            owner_id=owner_id,
+            is_admin=is_admin,
         )
 
         record = PluginResourceRecord(
@@ -725,11 +1123,32 @@ class PluginResourceService:
                     user_id=record.user_id,
                 )
 
+        if not schema.get("fields"):
+            raise ValueError(
+                "Impossible de modifier une donnée : " "la ressource ne possède aucun champ."
+            )
+
         if data.data is not None:
             record.data = self.validate_record(
                 schema=schema,
                 data=data.data,
             )
+
+            normalized = self.validate_record(
+                schema=schema,
+                data=data.data,
+            )
+
+            await self._validate_record_relations(
+                resource=resource,
+                data=normalized,
+                user_id=user_id,
+                owner_id=record.user_id,
+                is_admin=is_admin,
+                exclude_record_id=record.id,
+            )
+
+            record.data = normalized
 
         if data.is_active is not None:
             record.is_active = data.is_active
@@ -911,6 +1330,45 @@ class PluginResourceService:
             data.fields,
         )
 
+        # ------------------------------------------------------------------------
+        # Vérifier la cohérence avec les données appartenant à cet utilisateur.
+        # ------------------------------------------------------------------------
+
+        records_result = await self.session.execute(
+            select(PluginResourceRecord).where(
+                PluginResourceRecord.resource_id == resource_id,
+                PluginResourceRecord.user_id == user_id,
+            )
+        )
+
+        records = list(
+            records_result.scalars().all(),
+        )
+
+        if not schema.get("fields"):
+            if records:
+                raise ValueError(
+                    "Impossible de supprimer tous les champs du schema "
+                    "car cet utilisateur possède déjà des données."
+                )
+
+        migrated_data: list[dict[str, Any]] = []
+
+        for record in records:
+
+            current = dict(record.data or {})
+
+            normalized = self.validate_record(
+                schema=schema,
+                data=current,
+            )
+
+            migrated_data.append(normalized)
+
+        # ------------------------------------------------------------------------
+        # Upsert du schema.
+        # ------------------------------------------------------------------------
+
         result = await self.session.execute(
             select(PluginResourceUserSchema).where(
                 PluginResourceUserSchema.resource_id == resource_id,
@@ -937,6 +1395,30 @@ class PluginResourceService:
             override.schema_definition = schema
 
         await self.session.flush()
+
+        # ------------------------------------------------------------------------
+        # Mettre à jour les données si nécessaire.
+        # ------------------------------------------------------------------------
+
+        if records:
+            for record, migrated in zip(
+                records,
+                migrated_data,
+                strict=True,
+            ):
+                record.data = migrated
+
+            await self.session.flush()
+
+        # ------------------------------------------------------------------------
+        # IMPORTANT :
+        # server_onupdate peut rendre updated_at expiré après flush.
+        # On recharge explicitement l'objet avant Pydantic.
+        # ------------------------------------------------------------------------
+
+        await self.session.refresh(
+            override,
+        )
 
         return override
 
@@ -1771,6 +2253,704 @@ class PluginResourceService:
             raise ValueError(
                 f"Un champ avec la clé « {key} » existe déjà.",
             )
+
+    # ============================================================================
+    # SCHEMA / RECORD CONSISTENCY
+    # ============================================================================
+
+    async def _get_all_records(
+        self,
+        *,
+        resource_id: int,
+    ) -> list[PluginResourceRecord]:
+
+        result = await self.session.execute(
+            select(PluginResourceRecord)
+            .where(
+                PluginResourceRecord.resource_id == resource_id,
+            )
+            .order_by(
+                PluginResourceRecord.id.asc(),
+            )
+        )
+
+        return list(result.scalars().all())
+
+    @staticmethod
+    def _field_has_default(
+        field: dict[str, Any],
+    ) -> bool:
+
+        return "default_value" in field and field["default_value"] is not None
+
+    @classmethod
+    def _validate_existing_records_against_schema(
+        cls,
+        *,
+        records: list[PluginResourceRecord],
+        schema: dict[str, Any],
+        field_migrations: dict[str, tuple[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+
+        field_migrations = field_migrations or {}
+
+        migrated_records: list[dict[str, Any]] = []
+
+        for record in records:
+            current = dict(record.data or {})
+
+            for old_key, migration in field_migrations.items():
+                new_key, default_value = migration
+
+                if old_key == new_key:
+                    continue
+
+                if old_key in current:
+                    current[new_key] = current.pop(old_key)
+                elif new_key not in current and default_value is not None:
+                    current[new_key] = default_value
+
+            normalized = cls.validate_record(
+                schema=schema,
+                data=current,
+            )
+
+            # Conserver explicitement les champs facultatifs absents
+            # comme null lorsqu'une migration l'exige.
+            for field in schema.get("fields", []):
+                key = field["key"]
+
+                if key not in current and not field.get("required", False):
+                    current[key] = None
+
+            migrated_records.append(current)
+
+        return migrated_records
+
+    async def _apply_record_data_migration(
+        self,
+        *,
+        records: list[PluginResourceRecord],
+        migrated_data: list[dict[str, Any]],
+    ) -> None:
+
+        if len(records) != len(migrated_data):
+            raise ValueError(
+                "Erreur interne pendant la migration des données.",
+            )
+
+        for record, data in zip(
+            records,
+            migrated_data,
+            strict=True,
+        ):
+            record.data = data
+
+        await self.session.flush()
+
+    async def _get_user_schema_overrides(
+        self,
+        *,
+        resource_id: int,
+    ) -> list[PluginResourceUserSchema]:
+
+        result = await self.session.execute(
+            select(PluginResourceUserSchema).where(
+                PluginResourceUserSchema.resource_id == resource_id,
+            )
+        )
+
+        return list(result.scalars().all())
+
+    async def _propagate_admin_field_addition(
+        self,
+        *,
+        resource_id: int,
+        field: dict[str, Any],
+    ) -> None:
+
+        overrides = await self._get_user_schema_overrides(
+            resource_id=resource_id,
+        )
+
+        if not overrides:
+            return
+
+        for override in overrides:
+
+            schema = dict(
+                override.schema_definition or {},
+            )
+
+            fields = list(
+                schema.get(
+                    "fields",
+                    [],
+                )
+            )
+
+            if any(existing.get("key") == field["key"] for existing in fields):
+                continue
+
+            fields.append(dict(field))
+
+            fields.sort(
+                key=lambda item: item.get(
+                    "position",
+                    0,
+                )
+            )
+
+            override.schema_definition = {
+                "version": 1,
+                "fields": fields,
+            }
+
+        await self.session.flush()
+
+    async def _propagate_admin_field_update(
+        self,
+        *,
+        resource_id: int,
+        old_key: str,
+        field: dict[str, Any],
+    ) -> None:
+
+        overrides = await self._get_user_schema_overrides(
+            resource_id=resource_id,
+        )
+
+        if not overrides:
+            return
+
+        for override in overrides:
+
+            schema = dict(
+                override.schema_definition or {},
+            )
+
+            fields = list(
+                schema.get(
+                    "fields",
+                    [],
+                )
+            )
+
+            found = False
+
+            for index, existing in enumerate(fields):
+
+                if existing.get("key") == old_key:
+                    fields[index] = dict(field)
+                    found = True
+                    break
+
+            if not found:
+                fields.append(dict(field))
+
+            fields.sort(
+                key=lambda item: item.get(
+                    "position",
+                    0,
+                )
+            )
+
+            override.schema_definition = {
+                "version": 1,
+                "fields": fields,
+            }
+
+        await self.session.flush()
+
+    async def _propagate_admin_field_delete(
+        self,
+        *,
+        resource_id: int,
+        field_key: str,
+    ) -> None:
+
+        overrides = await self._get_user_schema_overrides(
+            resource_id=resource_id,
+        )
+
+        if not overrides:
+            return
+
+        for override in overrides:
+
+            schema = dict(
+                override.schema_definition or {},
+            )
+
+            fields = [
+                field
+                for field in schema.get(
+                    "fields",
+                    [],
+                )
+                if field.get("key") != field_key
+            ]
+
+            override.schema_definition = {
+                "version": 1,
+                "fields": fields,
+            }
+
+        await self.session.flush()
+
+    # ============================================================================
+    # RESOURCE RELATIONS
+    # ============================================================================
+
+    async def list_relations(
+        self,
+        *,
+        resource_id: int,
+    ) -> list[PluginResourceRelation]:
+
+        await self._get_resource_or_fail(
+            resource_id=resource_id,
+        )
+
+        result = await self.session.execute(
+            select(PluginResourceRelation)
+            .options(
+                selectinload(
+                    PluginResourceRelation.source_resource,
+                ),
+                selectinload(
+                    PluginResourceRelation.target_resource,
+                ),
+            )
+            .where(
+                or_(
+                    PluginResourceRelation.source_resource_id == resource_id,
+                    PluginResourceRelation.target_resource_id == resource_id,
+                )
+            )
+            .order_by(
+                PluginResourceRelation.created_at.asc(),
+            )
+        )
+
+        return list(result.scalars().all())
+
+    async def create_relation(
+        self,
+        *,
+        resource_id: int,
+        data: PluginResourceRelationCreate,
+    ) -> PluginResourceRelation:
+
+        source_resource = await self._get_resource_or_fail(
+            resource_id=resource_id,
+        )
+
+        plugin = await self._get_plugin(
+            plugin_id=source_resource.plugin_id,
+        )
+
+        self._ensure_plugin_editable(
+            plugin,
+        )
+
+        target_resource = await self._get_resource_or_fail(
+            resource_id=data.target_resource_id,
+        )
+
+        if source_resource.plugin_id != target_resource.plugin_id:
+            raise ValueError(
+                "Une ressource ne peut être liée qu'à une autre ressource " "du même plugin.",
+            )
+
+        if source_resource.id == target_resource.id:
+            raise ValueError(
+                "Une ressource ne peut pas être liée à elle-même.",
+            )
+
+        source_field = next(
+            (
+                field
+                for field in source_resource.fields
+                if field.key == data.source_field_key and field.is_active
+            ),
+            None,
+        )
+
+        if source_field is None:
+            raise ValueError(
+                f"Le champ source « {data.source_field_key} » " "n'existe pas dans la ressource.",
+            )
+
+        target_field = next(
+            (
+                field
+                for field in target_resource.fields
+                if field.key == data.target_field_key and field.is_active
+            ),
+            None,
+        )
+
+        if target_field is None:
+            raise ValueError(
+                f"Le champ cible « {data.target_field_key} » "
+                "n'existe pas dans la ressource cible.",
+            )
+
+        source_type = (
+            source_field.field_type.value
+            if hasattr(source_field.field_type, "value")
+            else source_field.field_type
+        )
+
+        target_type = (
+            target_field.field_type.value
+            if hasattr(target_field.field_type, "value")
+            else target_field.field_type
+        )
+
+        if source_type != target_type:
+            raise ValueError(
+                "Les types des champs doivent être identiques. "
+                f"Source={source_type}, cible={target_type}.",
+            )
+
+        if source_type in {
+            "SINGLE_CHOICE",
+            "MULTIPLE_CHOICE",
+        }:
+            raise ValueError(
+                "Les champs de type choix ne peuvent pas être utilisés " "comme clé de relation.",
+            )
+
+        existing = await self.session.execute(
+            select(PluginResourceRelation).where(
+                PluginResourceRelation.source_resource_id == source_resource.id,
+                PluginResourceRelation.source_field_key == source_field.key,
+                PluginResourceRelation.target_resource_id == target_resource.id,
+                PluginResourceRelation.target_field_key == target_field.key,
+            )
+        )
+
+        if existing.scalar_one_or_none() is not None:
+            raise ValueError(
+                "Cette relation existe déjà.",
+            )
+
+        # ------------------------------------------------------------------
+        # Vérifier l'unicité des valeurs de la ressource cible.
+        # ------------------------------------------------------------------
+
+        target_records = await self._get_all_records(
+            resource_id=target_resource.id,
+        )
+
+        seen_values: set[str] = set()
+
+        for record in target_records:
+
+            value = (record.data or {}).get(
+                target_field.key,
+            )
+
+            if self._is_empty(value):
+                continue
+
+            normalized = self._relation_value_key(
+                value,
+            )
+
+            if normalized in seen_values:
+                raise ValueError(
+                    "Impossible de créer la relation : "
+                    f"le champ cible « {target_field.label} » "
+                    "contient déjà des valeurs dupliquées.",
+                )
+
+            seen_values.add(normalized)
+
+        # ------------------------------------------------------------------
+        # Création
+        # ------------------------------------------------------------------
+
+        relation = PluginResourceRelation(
+            source_resource_id=source_resource.id,
+            source_field_key=source_field.key,
+            target_resource_id=target_resource.id,
+            target_field_key=target_field.key,
+            label=data.label,
+            is_active=data.is_active,
+        )
+
+        self.session.add(relation)
+
+        await self.session.flush()
+
+        # ------------------------------------------------------------------
+        # IMPORTANT :
+        # Recharger explicitement la relation avec ses ressources.
+        #
+        # Les relations SQLAlchemy utilisent lazy="raise".
+        # ------------------------------------------------------------------
+
+        result = await self.session.execute(
+            select(PluginResourceRelation)
+            .options(
+                selectinload(
+                    PluginResourceRelation.source_resource,
+                ),
+                selectinload(
+                    PluginResourceRelation.target_resource,
+                ),
+            )
+            .where(
+                PluginResourceRelation.id == relation.id,
+            )
+        )
+
+        relation = result.scalar_one()
+
+        return relation
+
+    async def delete_relation(
+        self,
+        *,
+        resource_id: int,
+        relation_id: int,
+    ) -> None:
+
+        resource = await self._get_resource_or_fail(
+            resource_id=resource_id,
+        )
+
+        plugin = await self._get_plugin(
+            plugin_id=resource.plugin_id,
+        )
+
+        self._ensure_plugin_editable(
+            plugin,
+        )
+
+        result = await self.session.execute(
+            select(PluginResourceRelation).where(
+                PluginResourceRelation.id == relation_id,
+                or_(
+                    PluginResourceRelation.source_resource_id == resource_id,
+                    PluginResourceRelation.target_resource_id == resource_id,
+                ),
+            )
+        )
+
+        relation = result.scalar_one_or_none()
+
+        if relation is None:
+            raise ValueError(
+                "Relation introuvable.",
+            )
+
+        await self.session.delete(
+            relation,
+        )
+
+        await self.session.flush()
+
+    async def list_related_records(
+        self,
+        *,
+        resource_id: int,
+        record_id: int,
+        relation_id: int,
+        user_id: int,
+        is_admin: bool,
+    ) -> tuple[
+        PluginResourceRelation,
+        str,
+        list[PluginResourceRecord],
+    ]:
+
+        source_resource = await self._get_resource_or_fail(
+            resource_id=resource_id,
+        )
+
+        relation_result = await self.session.execute(
+            select(PluginResourceRelation).where(
+                PluginResourceRelation.id == relation_id,
+                or_(
+                    PluginResourceRelation.source_resource_id == resource_id,
+                    PluginResourceRelation.target_resource_id == resource_id,
+                ),
+                PluginResourceRelation.is_active.is_(True),
+            )
+        )
+
+        relation = relation_result.scalar_one_or_none()
+
+        if relation is None:
+            raise ValueError(
+                "Relation introuvable.",
+            )
+
+        record_result = await self.session.execute(
+            select(PluginResourceRecord).where(
+                PluginResourceRecord.id == record_id,
+                PluginResourceRecord.resource_id == resource_id,
+            )
+        )
+
+        record = record_result.scalar_one_or_none()
+
+        if record is None:
+            raise ValueError(
+                "Donnée introuvable.",
+            )
+
+        if not is_admin and record.user_id not in {
+            None,
+            user_id,
+        }:
+            raise ValueError(
+                "Vous ne pouvez pas accéder à cette donnée.",
+            )
+
+        record_data = record.data or {}
+
+        # ------------------------------------------------------------------------
+        # SOURCE -> TARGET
+        # ------------------------------------------------------------------------
+
+        if relation.source_resource_id == resource_id:
+
+            direction = "SOURCE_TO_TARGET"
+
+            value = record_data.get(
+                relation.source_field_key,
+            )
+
+            if self._is_empty(value):
+                return relation, direction, []
+
+            target_resource = await self._get_resource_or_fail(
+                resource_id=relation.target_resource_id,
+            )
+
+            records = await self._get_visible_records_for_relation(
+                resource=target_resource,
+                user_id=user_id,
+                is_admin=is_admin,
+            )
+
+            related = [
+                target_record
+                for target_record in records
+                if self._relation_values_equal(
+                    target_record.data.get(
+                        relation.target_field_key,
+                    ),
+                    value,
+                )
+            ]
+
+            return relation, direction, related
+
+        # ------------------------------------------------------------------------
+        # TARGET -> SOURCE
+        # ------------------------------------------------------------------------
+
+        direction = "TARGET_TO_SOURCE"
+
+        value = record_data.get(
+            relation.target_field_key,
+        )
+
+        if self._is_empty(value):
+            return relation, direction, []
+
+        target_source_resource = await self._get_resource_or_fail(
+            resource_id=relation.source_resource_id,
+        )
+
+        records = await self._get_visible_records_for_relation(
+            resource=target_source_resource,
+            user_id=user_id,
+            is_admin=is_admin,
+        )
+
+        related = [
+            source_record
+            for source_record in records
+            if self._relation_values_equal(
+                source_record.data.get(
+                    relation.source_field_key,
+                ),
+                value,
+            )
+        ]
+
+        return relation, direction, related
+
+    async def _get_visible_records_for_relation(
+        self,
+        *,
+        resource: PluginResource,
+        user_id: int,
+        is_admin: bool,
+    ) -> list[PluginResourceRecord]:
+
+        query = select(
+            PluginResourceRecord,
+        ).where(
+            PluginResourceRecord.resource_id == resource.id,
+        )
+
+        if resource.scope == PluginResourceScope.GLOBAL:
+
+            query = query.where(
+                PluginResourceRecord.user_id.is_(None),
+            )
+
+        elif not is_admin:
+
+            query = query.where(
+                or_(
+                    PluginResourceRecord.user_id.is_(None),
+                    PluginResourceRecord.user_id == user_id,
+                )
+            )
+
+        result = await self.session.execute(
+            query.order_by(
+                PluginResourceRecord.created_at.desc(),
+            )
+        )
+
+        return list(
+            result.scalars().all(),
+        )
+
+    @staticmethod
+    def _relation_value_key(
+        value: Any,
+    ) -> str:
+
+        if isinstance(value, bool):
+            return f"bool:{value}"
+
+        if isinstance(value, (int, float)):
+            return f"number:{value}"
+
+        return f"string:{str(value).strip()}"
+
+    @classmethod
+    def _relation_values_equal(
+        cls,
+        left: Any,
+        right: Any,
+    ) -> bool:
+
+        if cls._is_empty(left) or cls._is_empty(right):
+            return False
+
+        return cls._relation_value_key(left) == cls._relation_value_key(right)
 
     # ========================================================================
     # GENERAL
