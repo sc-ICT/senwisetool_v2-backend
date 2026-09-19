@@ -30,6 +30,9 @@ from app.services.form_builder.question_bank import (
 from app.services.form_builder.question_group import QuestionGroupService
 from app.services.mobile_project import MobileProjectService
 from app.services.plugin import PluginService
+from app.services.plugin_form_template import PluginFormTemplateService
+from app.services.plugin_program import PluginProgramService
+from app.services.plugin_project_template import PluginProjectTemplateService
 from app.services.plugin_resource import PluginResourceService
 from app.services.plugin_resource_definition_import import (
     PluginResourceDefinitionImportService,
@@ -395,6 +398,30 @@ def get_plugin_resource_export_service(
 ) -> PluginResourceExportService:
     return PluginResourceExportService(
         resource_service=resource_service,
+    )
+
+
+def get_plugin_project_template_service(
+    session: AsyncSession = Depends(get_db),
+) -> PluginProjectTemplateService:
+    return PluginProjectTemplateService(
+        session=session,
+    )
+
+
+def get_plugin_form_template_service(
+    session: AsyncSession = Depends(get_db),
+) -> PluginFormTemplateService:
+    return PluginFormTemplateService(
+        session=session,
+    )
+
+
+def get_plugin_program_service(
+    session: AsyncSession = Depends(get_db),
+) -> PluginProgramService:
+    return PluginProgramService(
+        session=session,
     )
 
 

@@ -18,8 +18,12 @@ from app.models.plugin_resource_relation import PluginResourceRelation
 from app.schemas.plugin_resource import (
     PluginResourceCreate,
     PluginResourceFieldCreate,
+    PluginResourceImportError,
+    PluginResourceImportResponse,
     PluginResourceRecordCreate,
     PluginResourceRelationCreate,
+    PluginResourceUpdate,
+    PluginResourceWorkbookImportResponse,
 )
 from app.schemas.plugin_resource_definition_import import (
     PluginResourceDefinitionImportItem,
@@ -360,20 +364,20 @@ class PluginResourceDefinitionImportService:
                     # Unicité avec la BD
                     # --------------------------------------------------------
 
-                    if resource_key in existing_resource_keys:
+                    # if resource_key in existing_resource_keys:
 
-                        errors.append(
-                            f"Feuille « {worksheet.title} » : "
-                            f"la clé de ressource « {resource_key} » "
-                            "existe déjà dans ce plugin.",
-                        )
+                    #     errors.append(
+                    #         f"Feuille « {worksheet.title} » : "
+                    #         f"la clé de ressource « {resource_key} » "
+                    #         "existe déjà dans ce plugin.",
+                    #     )
 
                 except PluginResourceDefinitionImportError as exc:
 
                     errors.append(
                         str(exc),
                     )
-                    
+
             # ----------------------------------------------------------------
             # VALIDATION GLOBALE DES RELATIONS
             # ----------------------------------------------------------------
@@ -423,10 +427,22 @@ class PluginResourceDefinitionImportService:
 
             for parsed in creation_order:
 
-                resource = await self.resource_service.create(
-                    plugin_id=plugin_id,
-                    data=parsed.resource,
-                )
+                resource_key = parsed.resource.key.strip()
+
+                if resource_key in existing_resource_keys:
+
+                    resource = await self.resource_service.create_fields_for_existing_resource(
+                        plugin_id=plugin_id,
+                        key=resource_key,
+                        data=parsed.resource,
+                    )
+
+                else:
+
+                    resource = await self.resource_service.create(
+                        plugin_id=plugin_id,
+                        data=parsed.resource,
+                    )
 
                 created_by_key[resource.key.strip()] = resource
 
@@ -2808,14 +2824,8 @@ class PluginResourceDefinitionImportService:
 
     @staticmethod
     def _is_empty(value: Any) -> bool:
-        return (
-            value is None
-            or (
-                isinstance(value, str)
-                and not value.strip()
-            )
-        )
-        
+        return value is None or (isinstance(value, str) and not value.strip())
+
     @staticmethod
     def _ranges_overlap(
         start_row_a: int,

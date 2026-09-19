@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import PluginStatus, PluginVersionStatus
+from app.schemas.plugin_parameters import PluginParameters
 
 # ============================================================================
 # CREATE
@@ -44,8 +45,8 @@ class PluginCreate(BaseModel):
         max_length=50,
     )
 
-    parameters: dict = Field(
-        default_factory=dict,
+    parameters: PluginParameters = Field(
+        default_factory=PluginParameters,
     )
 
     metadata_config: dict = Field(
@@ -169,7 +170,7 @@ class PluginUpdate(BaseModel):
         max_length=50,
     )
 
-    parameters: dict | None = None
+    parameters: PluginParameters | None = None
 
     metadata_config: dict | None = None
 
@@ -282,7 +283,7 @@ class PluginResponse(BaseModel):
     category: str | None
     tags: list
 
-    parameters: dict
+    parameters: PluginParameters
     metadata_config: dict
 
     status: PluginStatus

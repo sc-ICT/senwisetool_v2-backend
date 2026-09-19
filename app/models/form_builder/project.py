@@ -12,6 +12,8 @@ from app.models.form_builder.enums import ProjectStatus
 
 if TYPE_CHECKING:
     from app.models.form_builder.form_definition import FormDefinition
+    from app.models.plugin import Plugin
+    from app.models.plugin_program import PluginProgram
     from app.models.project_agent_assignment import ProjectAgentAssignment
     from app.models.user import User
 
@@ -136,5 +138,36 @@ class Project(Base):
     project_folder: Mapped["FileNode | None"] = relationship(
         "FileNode",
         foreign_keys=[project_folder_id],
+        lazy="raise",
+    )
+
+    program_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "plugin_programs.id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    program: Mapped["PluginProgram | None"] = relationship(
+        "PluginProgram",
+        back_populates="projects",
+        foreign_keys=[program_id],
+        lazy="raise",
+    )
+
+    plugin_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "plugins.id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    plugin: Mapped["Plugin | None"] = relationship(
+        "Plugin",
+        foreign_keys=[plugin_id],
         lazy="raise",
     )

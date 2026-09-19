@@ -26,6 +26,7 @@ from app.models.enums import (
 )
 
 if TYPE_CHECKING:
+    from app.models.form_builder.project import Project
     from app.models.plugin_resource_relation import PluginResourceRelation
     from app.models.user import User
 
@@ -207,6 +208,13 @@ class Plugin(Base):
         back_populates="plugin",
         cascade="all, delete-orphan",
         order_by="PluginResource.position.asc()",
+        lazy="selectin",
+    )
+
+    projects: Mapped[list["Project"]] = relationship(
+        "Project",
+        foreign_keys="Project.plugin_id",
+        cascade="all, delete-orphan",
         lazy="selectin",
     )
 

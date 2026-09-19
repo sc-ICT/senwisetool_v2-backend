@@ -21,6 +21,9 @@ from app.routes import (
     form_sections,
     forms,
     mobile_projects,
+    plugin_form_templates,
+    plugin_programs,
+    plugin_project_templates,
     plugin_resources,
     plugins,
     project_agent_assignments,
@@ -128,7 +131,12 @@ app.include_router(auth.router)
 
 # ─── ROUTES DES PLUGINS ───────────────────────────────────────────────────────
 app.include_router(plugins.router)
+app.include_router(plugin_project_templates.router)
+app.include_router(plugin_form_templates.router)
 app.include_router(plugin_resources.router)
+
+# ─── ROUTES DES PROGRAMMES DU PLUGINS ───────────────────────────────────────────────────────
+app.include_router(plugin_programs.router)
 
 # ─── ROUTES DU FILE SYSTEM ───────────────────────────────────────────────────────────
 app.include_router(file_system.router)

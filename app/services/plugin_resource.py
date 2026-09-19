@@ -67,6 +67,31 @@ class PluginResourceService:
 
         return result.scalar_one_or_none()
 
+    async def get_resource_by_key(
+        self,
+        *,
+        resource_key: str,
+    ) -> PluginResource:
+
+        result = await self.session.execute(
+            select(PluginResource)
+            .options(
+                selectinload(
+                    PluginResource.fields,
+                ),
+            )
+            .where(
+                PluginResource.key == resource_key,
+            )
+        )
+
+        resource = result.scalar_one_or_none()
+
+        if resource is None:
+            raise
+
+        return resource
+
     async def list(
         self,
         *,
@@ -333,6 +358,108 @@ class PluginResourceService:
             resource.id,
         )
 
+    async def create_fields_for_existing_resource(
+        self,
+        *,
+        plugin_id: int,
+        key: str,
+        data: PluginResourceCreate,
+    ) -> PluginResource:
+        """
+        Récupère une ressource existante par sa clé et ajoute les champs
+        qui n'existent pas encore.
+
+        La ressource elle-même n'est jamais recréée.
+        """
+
+        plugin = await self._get_plugin(
+            plugin_id=plugin_id,
+        )
+
+        self._ensure_plugin_editable(
+            plugin,
+        )
+
+        resource_key = key.strip()
+
+        # ------------------------------------------------------------------
+        # Récupérer la ressource existante
+        # ------------------------------------------------------------------
+
+        result = await self.session.execute(
+            select(PluginResource).where(
+                PluginResource.plugin_id == plugin_id,
+                PluginResource.key == resource_key,
+            )
+        )
+
+        resource = result.scalar_one_or_none()
+
+        if resource is None:
+            raise ValueError(
+                f"Une ressource avec la clé « {resource_key} » " "n'existe pas dans ce plugin.",
+            )
+
+        # ------------------------------------------------------------------
+        # Vérification du scope
+        # ------------------------------------------------------------------
+
+        if data.scope != resource.scope:
+            raise ValueError(
+                f"Le scope de la ressource « {resource_key} » "
+                "ne correspond pas au scope fourni.",
+            )
+
+        # ------------------------------------------------------------------
+        # Validation des fields du fichier Excel
+        # ------------------------------------------------------------------
+
+        self._validate_fields_collection(
+            data.fields,
+        )
+
+        # ------------------------------------------------------------------
+        # Récupérer explicitement les fields existants
+        # ------------------------------------------------------------------
+
+        fields_result = await self.session.execute(
+            select(PluginResourceField).where(
+                PluginResourceField.resource_id == resource.id,
+            )
+        )
+
+        existing_fields = fields_result.scalars().all()
+
+        existing_field_keys = {
+            field.key.strip() for field in existing_fields if field.key is not None
+        }
+
+        # ------------------------------------------------------------------
+        # Ajouter uniquement les fields manquants
+        # ------------------------------------------------------------------
+
+        for field_data in data.fields:
+
+            field_key = field_data.key.strip()
+
+            if field_key in existing_field_keys:
+                continue
+
+            await self.add_field(
+                resource_id=resource.id,
+                data=field_data,
+            )
+
+            existing_field_keys.add(field_key)
+
+        # ------------------------------------------------------------------
+        # Recharger complètement la ressource avec ses fields
+        # ------------------------------------------------------------------
+
+        return await self._reload(
+            resource.id,
+        )
+
     # ========================================================================
     # RESOURCE UPDATE
     # ========================================================================
@@ -452,13 +579,15 @@ class PluginResourceService:
 
         self._validate_field(data)
 
+        field_key = data.key.strip()
+
         await self._ensure_field_key_available(
             resource_id=resource_id,
-            key=data.key.strip(),
+            key=field_key,
         )
 
         # ------------------------------------------------------------------------
-        # Vérification de cohérence avec les données existantes
+        # Récupération des données existantes
         # ------------------------------------------------------------------------
 
         records = await self._get_all_records(
@@ -473,7 +602,7 @@ class PluginResourceService:
             )
 
         # ------------------------------------------------------------------------
-        # La valeur par défaut doit elle-même respecter le nouveau champ.
+        # Validation de la valeur par défaut
         # ------------------------------------------------------------------------
 
         if data.default_value is not None:
@@ -482,33 +611,48 @@ class PluginResourceService:
                 value=data.default_value,
             )
 
+        # ------------------------------------------------------------------------
+        # Création du champ
+        # ------------------------------------------------------------------------
+
         field = self._build_field(
             resource_id=resource_id,
             data=data,
         )
 
+        # IMPORTANT :
+        # Ajouter explicitement le champ à la session ET à la relation
+        # SQLAlchemy. Cela permet à resource.fields de rester synchronisé
+        # immédiatement.
         self.session.add(field)
+        resource.fields.append(field)
 
         await self.session.flush()
+
+        # ------------------------------------------------------------------------
+        # Synchronisation du schema_definition
+        # ------------------------------------------------------------------------
 
         await self._sync_schema_definition(
             resource_id,
         )
-
-        new_field = self._field_to_dict(field)
 
         # ------------------------------------------------------------------------
         # Migration des données existantes
         # ------------------------------------------------------------------------
 
         if records:
+
             for record in records:
-                migrated_data = dict(record.data or {})
+
+                migrated_data = dict(
+                    record.data or {},
+                )
 
                 if data.default_value is not None:
-                    migrated_data[data.key.strip()] = data.default_value
+                    migrated_data[field_key] = data.default_value
                 else:
-                    migrated_data[data.key.strip()] = None
+                    migrated_data[field_key] = None
 
                 # Validation finale avec le nouveau schema.
                 self.validate_record(
@@ -525,10 +669,19 @@ class PluginResourceService:
         # ------------------------------------------------------------------------
 
         if resource.scope == PluginResourceScope.USER:
+
+            new_field = self._field_to_dict(
+                field,
+            )
+
             await self._propagate_admin_field_addition(
                 resource_id=resource_id,
                 field=new_field,
             )
+
+        # ------------------------------------------------------------------------
+        # Rechargement complet
+        # ------------------------------------------------------------------------
 
         return await self._reload(
             resource.id,

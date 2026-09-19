@@ -25,6 +25,7 @@ from app.schemas.plugin import (
     PluginCreate,
     PluginUpdate,
 )
+from app.schemas.plugin_parameters import PluginParameters
 
 
 class PluginService:
@@ -184,7 +185,11 @@ class PluginService:
                 "tags": plugin.tags or [],
             },
             "configuration": {
-                "parameters": plugin.parameters or {},
+                "parameters": PluginParameters.model_validate(
+                    plugin.parameters or {},
+                ).model_dump(
+                    mode="json",
+                ),
                 "metadata_config": plugin.metadata_config or {},
             },
             "resources": [cls._serialize_resource(resource) for resource in resources],
@@ -491,7 +496,7 @@ class PluginService:
             banner_url=data.banner_url,
             category=data.category,
             tags=data.tags,
-            parameters=data.parameters,
+            parameters=data.parameters.model_dump(mode="json"),
             metadata_config=data.metadata_config,
             status=PluginStatus.DRAFT,
             is_public=False,
@@ -581,7 +586,9 @@ class PluginService:
             plugin.tags = data.tags
 
         if data.parameters is not None:
-            plugin.parameters = data.parameters
+            plugin.parameters = data.parameters.model_dump(
+                mode="json",
+            )
 
         if data.metadata_config is not None:
             plugin.metadata_config = data.metadata_config

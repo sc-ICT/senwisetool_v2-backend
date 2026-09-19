@@ -16,17 +16,32 @@ from app.models.plugin import (
     PluginResourceField,
     PluginVersion,
 )
+from app.models.plugin_form_template import (
+    PluginFormTemplate,
+)
+from app.models.plugin_program import (
+    PluginProgram,
+)
+from app.models.plugin_project_template import (
+    PluginProjectTemplate,
+)
 from app.models.plugin_resource_data import (
     PluginResourceRecord,
     PluginResourceUserSchema,
 )
-from app.models.plugin_resource_relation import PluginResourceRelation
+from app.models.plugin_resource_relation import (
+    PluginResourceRelation,
+)
 from app.models.project_agent_assignment import (
     ProjectAgentAssignment,
     ProjectAgentAssignmentZone,
 )
-from app.models.submission import Submission
-from app.models.submission_answer import SubmissionAnswer
+from app.models.submission import (
+    Submission,
+)
+from app.models.submission_answer import (
+    SubmissionAnswer,
+)
 from app.models.user import User
 
 __all__ = [
@@ -48,4 +63,7 @@ __all__ = [
     "PluginResourceRecord",
     "PluginResourceUserSchema",
     "PluginResourceRelation",
+    "PluginProjectTemplate",
+    "PluginFormTemplate",
+    "PluginProgram",
 ]
